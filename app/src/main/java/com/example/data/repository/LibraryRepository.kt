@@ -95,11 +95,13 @@ class LibraryRepository(
         val introDest = File(sampleDir, introAsset)
         val introUri = Uri.fromFile(introDest).toString()
 
-        if (!introDest.exists()) {
+        val introFlag = File(sampleDir, "andamp_droid_intro_voice_v2.flag")
+        if (!introDest.exists() || !introFlag.exists()) {
             runCatching {
                 context.assets.open("samples/$introAsset").use { input ->
                     introDest.outputStream().use { output -> input.copyTo(output) }
                 }
+                introFlag.writeText("v2")
             }
         }
 
