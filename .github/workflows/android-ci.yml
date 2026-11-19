@@ -1,0 +1,106 @@
+name: AndAmp Android CI & Release
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Test & Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Decode debug keystore
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            keytool -genkeypair -v -keystore debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Accept Android SDK licenses
+        run: |
+          SDK_MGR=$(command -v sdkmanager || ls "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n 1 || true)
+          if [ -n "$SDK_MGR" ]; then
+            yes | "$SDK_MGR" --licenses > /dev/null 2>&1 || true
+          fi
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Determine app version from tag if present
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG_VER="${GITHUB_REF_NAME#v}"
+            echo "version_name=${TAG_VER}" >> "$GITHUB_OUTPUT"
+            echo "version_code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version_name=1.0.0" >> "$GITHUB_OUTPUT"
+            echo "version_code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Unit & Robolectric Tests
+        run: gradle :app:testDebugUnitTest --no-daemon
+
+      - name: Build Installable APK
+        run: |
+          gradle :app:assembleDebug --no-daemon \
+            -PandampVersionName="${{ steps.version.outputs.version_name }}" \
+            -PandampVersionCode="${{ steps.version.outputs.version_code }}"
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/AndAmp-v${{ steps.version.outputs.version_name }}.apk"
+
+      - name: Build Signed Release APK (optional when keystore secrets are configured)
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "${UPLOAD_KEYSTORE_BASE64:-}" ] && [ -n "${STORE_PASSWORD:-}" ] && [ -n "${KEY_PASSWORD:-}" ]; then
+            echo "${UPLOAD_KEYSTORE_BASE64}" | base64 -d > my-upload-key.jks
+            gradle :app:assembleRelease --no-daemon \
+              -PandampVersionName="${{ steps.version.outputs.version_name }}" \
+              -PandampVersionCode="${{ steps.version.outputs.version_code }}"
+            cp app/build/outputs/apk/release/app-release.apk "dist/AndAmp-v${{ steps.version.outputs.version_name }}-release.apk"
+          else
+            echo "Release keystore secrets not configured; publishing consistent debug-signed APK."
+          fi
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AndAmp-v${{ steps.version.outputs.version_name }}
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release on Tag
+        if: steps.version.outputs.is_tag == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          generate_release_notes: true
+          name: "AndAmp ${{ github.ref_name }}"

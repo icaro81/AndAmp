@@ -1,0 +1,31 @@
+<resources>
+    <string name="app_name">AndAmp</string>
+
+    <!-- Rack Headers -->
+    <string name="rack_title_player">ANDAMP HI-FI</string>
+    <string name="rack_title_eq">ANDAMP EQUALIZER</string>
+    <string name="rack_title_playlist">ANDAMP PLAYLIST</string>
+
+    <!-- Transport & Controls -->
+    <string name="cd_previous_track">Pista anterior</string>
+    <string name="cd_play">Reproducir</string>
+    <string name="cd_pause">Pausar</string>
+    <string name="cd_stop">Detener</string>
+    <string name="cd_next_track">Siguiente pista</string>
+    <string name="cd_eject_import">Importar archivos de audio</string>
+    <string name="cd_shuffle">Modo aleatorio</string>
+    <string name="cd_repeat">Modo repetición</string>
+
+    <!-- Playlist Footer Actions -->
+    <string name="btn_add">ADD</string>
+    <string name="btn_rem">REM</string>
+    <string name="btn_sel">SEL</string>
+    <string name="btn_misc">MISC</string>
+    <string name="btn_list_opts">LIST OPTS</string>
+    <string name="btn_presets">PRESETS</string>
+
+    <!-- Adaptive Landscape Tabs -->
+    <string name="tab_player">1. REPRODUCTOR</string>
+    <string name="tab_equalizer">2. ECUALIZADOR</string>
+    <string name="tab_playlist">3. LISTA</string>
+</resources>

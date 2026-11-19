@@ -1,0 +1,6 @@
+{
+  "name": "AndAmp",
+  "description": "Reproductor Hi-Res adaptativo (FLAC, ALAC, DSD, WAV) con ecualizador de 10 bandas, navegador Samba/NAS, listas de YouTube, actualización interna APK e intro AndAmp Droid.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
