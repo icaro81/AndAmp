@@ -20,11 +20,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Decode debug keystore
         run: |
@@ -64,11 +64,26 @@ jobs:
           fi
 
       - name: Run Unit & Robolectric Tests
-        run: gradle :app:testDebugUnitTest --no-daemon
+        run: |
+          gradle :app:testDebugUnitTest --no-daemon --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx2560m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
+            -Dorg.gradle.workers.max=2
+
+      - name: Upload Test Reports on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore
 
       - name: Build Installable APK
         run: |
-          gradle :app:assembleDebug --no-daemon \
+          gradle :app:assembleDebug --no-daemon --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx2560m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
+            -Dorg.gradle.workers.max=2 \
             -PandampVersionName="${{ steps.version.outputs.version_name }}" \
             -PandampVersionCode="${{ steps.version.outputs.version_code }}"
           mkdir -p dist
@@ -82,7 +97,9 @@ jobs:
         run: |
           if [ -n "${UPLOAD_KEYSTORE_BASE64:-}" ] && [ -n "${STORE_PASSWORD:-}" ] && [ -n "${KEY_PASSWORD:-}" ]; then
             echo "${UPLOAD_KEYSTORE_BASE64}" | base64 -d > my-upload-key.jks
-            gradle :app:assembleRelease --no-daemon \
+            gradle :app:assembleRelease --no-daemon --stacktrace \
+              -Dorg.gradle.jvmargs="-Xmx2560m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
+              -Dorg.gradle.workers.max=2 \
               -PandampVersionName="${{ steps.version.outputs.version_name }}" \
               -PandampVersionCode="${{ steps.version.outputs.version_code }}"
             cp app/build/outputs/apk/release/app-release.apk "dist/AndAmp-v${{ steps.version.outputs.version_name }}-release.apk"

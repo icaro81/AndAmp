@@ -218,6 +218,7 @@ class ExampleRobolectricTest {
       }
     }
 
+    composeTestRule.waitForIdle()
     composeTestRule.onNodeWithText("ANDAMP HI-FI").assertIsDisplayed()
     composeTestRule.onNodeWithText("ANDAMP EQUALIZER").assertIsDisplayed()
     composeTestRule.onNodeWithText("ANDAMP PLAYLIST").performScrollTo().assertIsDisplayed()
@@ -321,17 +322,21 @@ class ExampleRobolectricTest {
       }
     }
 
+    composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("landscape_tab_0").assertIsDisplayed()
     composeTestRule.onNodeWithTag("landscape_tab_1").assertIsDisplayed()
     composeTestRule.onNodeWithTag("landscape_tab_2").assertIsDisplayed()
     composeTestRule.onNodeWithText("ANDAMP HI-FI").assertIsDisplayed()
 
     composeTestRule.onNodeWithTag("landscape_tab_1").performClick()
+    composeTestRule.waitForIdle()
     composeTestRule.onNodeWithText("ANDAMP EQUALIZER").assertIsDisplayed()
 
     composeTestRule.onNodeWithTag("landscape_tab_2").performClick()
+    composeTestRule.waitForIdle()
     composeTestRule.onNodeWithText("ANDAMP PLAYLIST").assertIsDisplayed()
     composeTestRule.onNodeWithTag("btn_playlist_misc").performClick()
+    composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("misc_check_updates_btn").performScrollTo().assertIsDisplayed()
   }
 }

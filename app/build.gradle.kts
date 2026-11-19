@@ -64,7 +64,22 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      all {
+        it.maxHeapSize = "1536m"
+        it.jvmArgs("-XX:+UseG1GC")
+        it.testLogging {
+          events("failed", "skipped")
+          exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+          showExceptions = true
+          showCauses = true
+          showStackTraces = true
+        }
+      }
+    }
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
