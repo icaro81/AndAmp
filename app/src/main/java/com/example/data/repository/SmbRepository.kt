@@ -33,6 +33,9 @@ import jcifs.smb.SmbException
 import jcifs.smb.SmbFile as JcifsSmbFile
 import jcifs.smb.SmbRandomAccessFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -45,6 +48,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.EnumSet
 import java.util.Properties
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 data class SmbDirectoryListing(
@@ -64,12 +68,15 @@ class SmbRepository(
     )
 
     private val commonShareProbes = listOf(
-        "USB1_1", "usb1_1", "USB1", "usb1", "USB",
+        "USB1_1", "usb1_1", "USB1_2", "USB2_1", "USB1", "usb1", "USB",
+        "usb_disc1", "USB_Storage", "USBStorage", "usbstorage", "usbdrive",
         "Music", "music", "Musica", "Música", "MUSICA",
         "Media", "media", "Audio", "audio",
         "Public", "public", "Shared", "Share", "share",
-        "NAS", "home", "Downloads", "Volume_1", "sda1", "sdb1"
+        "NAS", "home", "Downloads", "Volume_1", "disk1", "sda1", "sdb1"
     )
+
+    private val preferredSmb1Hosts = ConcurrentHashMap<String, Boolean>()
 
     val allServersFlow: Flow<List<SmbServerProfile>> = smbServerDao.observeAllServers().map { list ->
         list.map { it.toDomain() }
@@ -91,8 +98,8 @@ class SmbRepository(
         val config = SmbConfig.builder()
             .withSecurityProvider(BCSecurityProvider())
             .withMultiProtocolNegotiate(multiProtocolNegotiate)
-            .withTimeout(8, TimeUnit.SECONDS)
-            .withSoTimeout(12, TimeUnit.SECONDS)
+            .withTimeout(3, TimeUnit.SECONDS)
+            .withSoTimeout(6, TimeUnit.SECONDS)
             .build()
         return SMBClient(config)
     }
@@ -113,9 +120,9 @@ class SmbRepository(
             setProperty("jcifs.smb.client.ipcSigningEnforced", "false")
             setProperty("jcifs.smb.client.signingPreferred", "false")
             setProperty("jcifs.smb.client.dfs.disabled", "true")
-            setProperty("jcifs.smb.client.connTimeout", "8000")
-            setProperty("jcifs.smb.client.responseTimeout", "12000")
-            setProperty("jcifs.smb.client.soTimeout", "12000")
+            setProperty("jcifs.smb.client.connTimeout", "4000")
+            setProperty("jcifs.smb.client.responseTimeout", "8000")
+            setProperty("jcifs.smb.client.soTimeout", "8000")
             setProperty("jcifs.resolveOrder", "DNS,BCAST")
         }
         return BaseContext(PropertyConfiguration(props))
@@ -147,11 +154,32 @@ class SmbRepository(
             currentRelPath = relativePath
         )
 
+        val preferSmb1 = preferredSmb1Hosts[cleanHost] == true
+        if (preferSmb1) {
+            val smb1Result = runCatching {
+                listDirectoryJcifsSmb1(server, cleanHost, normalizedShare, normalizedRelPath)
+            }
+            if (smb1Result.isSuccess) {
+                preferredSmb1Hosts[cleanHost] = true
+                return@withContext smb1Result
+            }
+            val smb2Fallback = runCatching {
+                listDirectorySmb2(server, cleanHost, normalizedShare, normalizedRelPath)
+            }
+            if (smb2Fallback.isSuccess) {
+                preferredSmb1Hosts[cleanHost] = false
+                return@withContext smb2Fallback
+            }
+            val err = smb1Result.exceptionOrNull() ?: smb2Fallback.exceptionOrNull() ?: IOException("Error desconocido de red")
+            return@withContext Result.failure(IOException(formatFriendlySmbError(err, cleanHost, normalizedShare), err))
+        }
+
         // 1) Try native SMB2/SMB3 via smbj first
         val smb2Result = runCatching {
             listDirectorySmb2(server, cleanHost, normalizedShare, normalizedRelPath)
         }
         if (smb2Result.isSuccess) {
+            preferredSmb1Hosts[cleanHost] = false
             return@withContext smb2Result
         }
 
@@ -161,10 +189,11 @@ class SmbRepository(
             listDirectoryJcifsSmb1(server, cleanHost, normalizedShare, normalizedRelPath)
         }
         if (smb1Result.isSuccess) {
+            preferredSmb1Hosts[cleanHost] = true
             return@withContext smb1Result
         }
 
-        val finalError = smb1Result.exceptionOrNull() ?: smb2Error ?: IOException("Error desconocido SMB")
+        val finalError = smb1Result.exceptionOrNull() ?: smb2Error ?: IOException("Error desconocido de red")
         Result.failure(IOException(formatFriendlySmbError(finalError, cleanHost, normalizedShare), finalError))
     }
 
@@ -180,9 +209,29 @@ class SmbRepository(
             connection.use { conn ->
                 val sess = authenticateSmb2WithFallback(conn, server)
                 sess.use { session ->
-                    val effectiveShare = resolveEffectiveShareSmb2(session, shareName)
+                    val availableShares = discoverAccessibleSharesSmb2(session, shareName)
+                    if (shareName.isBlank() && availableShares.size > 1) {
+                        val entries = availableShares.sortedBy { it.lowercase() }.map { s ->
+                            SmbBrowserEntry(
+                                name = s,
+                                relativePath = "",
+                                shareName = s,
+                                isDirectory = true,
+                                sizeBytes = 0L,
+                                formatHint = null
+                            )
+                        }
+                        return SmbDirectoryListing(
+                            resolvedShare = "/",
+                            resolvedPath = "",
+                            entries = entries,
+                            protocolLabel = "SMB2/3"
+                        )
+                    }
+
+                    val effectiveShare = availableShares.first()
                     val share = session.connectShare(effectiveShare) as? DiskShare
-                        ?: error("El recurso \"$effectiveShare\" no es una carpeta compartida SMB")
+                        ?: error("La carpeta \"$effectiveShare\" no es accesible como carpeta compartida")
                     share.use { diskShare ->
                         val cleanPath = relativePath.replace('/', '\\').trim('\\')
                         val rawList = diskShare.list(cleanPath)
@@ -238,25 +287,32 @@ class SmbRepository(
             if (attempt.isSuccess) return attempt.getOrThrow()
             lastError = attempt.exceptionOrNull()
         }
-        throw lastError ?: IOException("Fallo autenticando sesión SMB2")
+        throw lastError ?: IOException("No se pudo iniciar sesión en el equipo")
     }
 
-    private fun resolveEffectiveShareSmb2(session: Session, requestedShare: String): String {
+    private fun discoverAccessibleSharesSmb2(session: Session, requestedShare: String): List<String> {
         val candidate = requestedShare.trim()
-        if (candidate.isNotBlank()) return candidate
+        if (candidate.isNotBlank()) return listOf(candidate)
 
+        val matched = mutableListOf<String>()
+        val seenLower = mutableSetOf<String>()
         for (probe in commonShareProbes) {
+            if (probe.lowercase() in seenLower) continue
             val ok = runCatching {
                 val share = session.connectShare(probe)
                 share.close()
                 true
             }.getOrDefault(false)
-            if (ok) return probe
+            if (ok) {
+                seenLower.add(probe.lowercase())
+                matched.add(probe)
+            }
         }
-        error("Indica el nombre de la carpeta compartida (Share) en la configuración del servidor")
+        if (matched.isNotEmpty()) return matched
+        error("No se detectaron carpetas USB compartidas automáticamente")
     }
 
-    private fun listDirectoryJcifsSmb1(
+    private suspend fun listDirectoryJcifsSmb1(
         server: SmbServerProfile,
         cleanHost: String,
         shareName: String,
@@ -270,11 +326,17 @@ class SmbRepository(
                 val rootPrefix = buildJcifsServerRoot(cleanHost, server.port)
                 if (shareName.isBlank()) {
                     val serverRoot = JcifsSmbFile(rootPrefix, ctx)
-                    val shares = runCatching { serverRoot.listFiles() }
+                    val listedShares = runCatching { serverRoot.listFiles() }
                         .getOrNull()
                         ?.map { it.name.trimEnd('/') }
                         ?.filter { it.isNotBlank() && !it.endsWith("$") }
                         .orEmpty()
+
+                    val shares = if (listedShares.isNotEmpty()) {
+                        listedShares
+                    } else {
+                        discoverJcifsSharesParallel(rootPrefix, ctx)
+                    }
 
                     if (shares.size == 1) {
                         val singleShare = shares.first()
@@ -297,13 +359,7 @@ class SmbRepository(
                             protocolLabel = "SMB1/CIFS"
                         )
                     } else {
-                        for (probe in commonShareProbes) {
-                            val probed = runCatching {
-                                readJcifsShareDirectory(rootPrefix, ctx, probe, "")
-                            }.getOrNull()
-                            if (probed != null) return probed
-                        }
-                        error("No se detectaron carpetas compartidas accesibles en $cleanHost")
+                        error("No se detectaron carpetas USB accesibles en $cleanHost")
                     }
                 } else {
                     return readJcifsShareDirectory(rootPrefix, ctx, shareName, relativePath)
@@ -316,8 +372,26 @@ class SmbRepository(
             }
         }
 
-        throw lastError ?: IOException("No se pudo listar directorio vía SMB 1.0")
+        throw lastError ?: IOException("No se pudo abrir la carpeta del router/NAS")
     }
+
+    private suspend fun discoverJcifsSharesParallel(rootPrefix: String, ctx: CIFSContext): List<String> =
+        coroutineScope {
+            val found = commonShareProbes.map { probe ->
+                async(Dispatchers.IO) {
+                    val ok = runCatching {
+                        val dir = JcifsSmbFile("$rootPrefix$probe/", ctx)
+                        dir.exists() && dir.isDirectory
+                    }.getOrDefault(false)
+                    if (ok) probe else null
+                }
+            }.awaitAll().filterNotNull()
+
+            // Deduplicate case-insensitively while preserving router casing
+            val unique = linkedMapOf<String, String>()
+            found.forEach { name -> unique.putIfAbsent(name.lowercase(), name) }
+            unique.values.toList()
+        }
 
     private fun readJcifsShareDirectory(
         rootPrefix: String,
@@ -388,7 +462,8 @@ class SmbRepository(
         if (audioEntries.isEmpty()) return@withContext 0
 
         val cleanHost = normalizeHost(server.host)
-        val useSmb1Directly = protocolHint.contains("SMB1", ignoreCase = true)
+        val useSmb1Directly = protocolHint.contains("SMB1", ignoreCase = true) ||
+            preferredSmb1Hosts[cleanHost] == true
         var addedCount = 0
         val existingCount = trackDao.getTrackCount()
 
@@ -695,7 +770,9 @@ class SmbRepository(
         val server = entity.toDomain()
         val cleanHost = normalizeHost(server.host)
 
-        if (!protoHint.equals("smb1", ignoreCase = true)) {
+        val useSmb1 = protoHint.equals("smb1", ignoreCase = true) ||
+            preferredSmb1Hosts[cleanHost] == true
+        if (!useSmb1) {
             val smb2Handle = runCatching {
                 openSmb2Handle(server, cleanHost, shareName, relPath)
             }.getOrNull()
@@ -789,20 +866,20 @@ class SmbRepository(
 
         return when {
             hasUnknownHost ->
-                "No se encontró el equipo \"$host\" en la red Wi-Fi. Prueba usar su IP local."
+                "No encontramos el equipo \"$host\" en este Wi-Fi. Comprueba que esté encendido y en tu red."
             hasAuth ->
-                "Acceso denegado en \"$host\". Verifica usuario y contraseña (o activa/desactiva acceso Invitado)."
+                "Este equipo pide usuario y contraseña. Toca «Ajustes avanzados» para introducirlos."
             smbErr?.message?.contains("BAD_NETWORK_NAME", ignoreCase = true) == true ||
                 chain.any { it.message?.contains("BAD_NETWORK_NAME", ignoreCase = true) == true } ->
-                "No existe la carpeta compartida \"$share\" en $host. Revisa el nombre exacto del Share."
+                "No encontramos la carpeta \"$share\". Toca «Ajustes avanzados» si el router usa otro nombre."
             hasTimeout ->
-                "Tiempo de espera agotado conectando a $host. Comprueba que estés en el mismo Wi-Fi."
+                "El equipo $host tardó demasiado en responder. Comprueba que sigas en el mismo Wi-Fi."
             hasEof || hasConnRefused ->
-                "El servidor $host cerró la conexión (intentado en SMB2/3 y SMB1). Revisa el nombre del Share, puerto 445 o credenciales del router."
+                "No pudimos abrir las carpetas de $host automáticamente. Prueba «Reintentar» o revisa «Ajustes avanzados»."
             else ->
                 chain.lastOrNull()?.localizedMessage?.takeIf { it.isNotBlank() }
                     ?: err.localizedMessage
-                    ?: "No se pudo conectar a $host"
+                    ?: "No se pudo conectar con $host"
         }
     }
 

@@ -88,8 +88,8 @@ import com.example.ui.viewmodel.SmbBrowserUiState
 import com.example.ui.viewmodel.YouTubeSearchUiState
 
 private enum class AddSourceTab(val label: String) {
-    LOCAL("LOCAL"),
-    NAS("NAS / SMB"),
+    LOCAL("MÓVIL"),
+    NAS("WI-FI / USB"),
     YOUTUBE("YOUTUBE")
 }
 
@@ -140,7 +140,7 @@ fun AddSourceSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "AÑADIR AUDIO / RED / YOUTUBE",
+                text = "AÑADIR MÚSICA",
                 style = MaterialTheme.typography.titleMedium,
                 color = WinampColors.TitleGold
             )
@@ -365,7 +365,14 @@ private fun SambaNasTabContent(
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (activeServer == null) {
-            // Streamlined top action bar: Scan LAN + Manual inline form
+            // Streamlined top action bar: 1-tap Wi-Fi scan + collapsible Advanced settings
+            Text(
+                text = "Encuentra automáticamente tu router con USB o PC en el mismo Wi-Fi, sin escribir rutas.",
+                fontFamily = JetBrainsMonoFamily,
+                fontSize = 10.5.sp,
+                color = WinampColors.TextSecondary
+            )
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -373,21 +380,21 @@ private fun SambaNasTabContent(
                 WinampMetallicButton(
                     onClick = onScanLan,
                     testTag = "smb_scan_lan_button",
-                    contentDesc = "Escanear red Wi-Fi buscando servidores NAS y Samba",
+                    contentDesc = "Buscar routers y equipos con música en tu Wi-Fi",
                     showLed = true,
                     ledActive = lanScanState.isScanning,
-                    minHeight = 46.dp,
+                    minHeight = 48.dp,
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
                         imageVector = if (lanScanState.isScanning) Icons.Filled.Refresh else Icons.Filled.WifiFind,
                         contentDescription = null,
                         tint = WinampColors.LcdGreen,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = if (lanScanState.isScanning) "ESCANEANDO..." else "ESCANEAR RED LAN",
+                        text = if (lanScanState.isScanning) "BUSCANDO..." else "BUSCAR EN MI WI-FI",
                         fontFamily = JetBrainsMonoFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 10.sp,
@@ -401,10 +408,10 @@ private fun SambaNasTabContent(
                         showInlineForm = !showInlineForm
                     },
                     testTag = "smb_manual_toggle_button",
-                    contentDesc = "Agregar servidor manualmente",
+                    contentDesc = "Abrir ajustes avanzados de conexión",
                     showLed = showInlineForm,
                     ledActive = showInlineForm,
-                    minHeight = 46.dp
+                    minHeight = 48.dp
                 ) {
                     Icon(
                         imageVector = if (showInlineForm) Icons.Filled.Close else Icons.Filled.Add,
@@ -414,10 +421,10 @@ private fun SambaNasTabContent(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = "MANUAL",
+                        text = "AVANZADO",
                         fontFamily = JetBrainsMonoFamily,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
+                        fontSize = 9.5.sp,
                         color = WinampColors.TitleGold
                     )
                 }
@@ -431,7 +438,7 @@ private fun SambaNasTabContent(
                 )
             }
 
-            // Inline compact manual / edit form (replaces clunky nested dialog)
+            // Collapsible manual / credentials form (hidden by default for simplicity)
             if (showInlineForm) {
                 InlineSmbFormCard(
                     initial = editingServer,
@@ -451,9 +458,9 @@ private fun SambaNasTabContent(
             if (lanScanState.discoveredHosts.isNotEmpty() || lanScanState.errorMessage != null) {
                 Text(
                     text = if (lanScanState.discoveredHosts.isNotEmpty()) {
-                        "Equipos detectados en tu red (${lanScanState.discoveredHosts.size})"
+                        "Equipos disponibles en tu Wi-Fi (${lanScanState.discoveredHosts.size})"
                     } else {
-                        "Escaneo de red"
+                        "Búsqueda en tu Wi-Fi"
                     },
                     style = MaterialTheme.typography.titleSmall,
                     color = WinampColors.TitleSilver
@@ -468,7 +475,7 @@ private fun SambaNasTabContent(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "$msg. Usa MANUAL si tu NAS está en otra subred o puerto.",
+                        text = "$msg. Si tu router usa otro nombre (como gpon.net), toca «AVANZADO».",
                         fontFamily = JetBrainsMonoFamily,
                         fontSize = 10.5.sp,
                         color = WinampColors.LcdGreenDim,
@@ -525,11 +532,12 @@ private fun SambaNasTabContent(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "smb://${host.host}:${host.port} · ${host.source}",
+                                            text = "${host.source} · Toca ABRIR para ver carpetas",
                                             fontFamily = JetBrainsMonoFamily,
                                             fontSize = 9.5.sp,
                                             color = WinampColors.TextSecondary,
-                                            maxLines = 1
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                     WinampMetallicButton(
@@ -537,11 +545,11 @@ private fun SambaNasTabContent(
                                             onConnectDiscovered(host, "", true, "", "")
                                         },
                                         testTag = "lan_quick_guest_${host.host}",
-                                        contentDesc = "Conectar en 1 toque como invitado a ${host.displayName}",
-                                        minHeight = 34.dp
+                                        contentDesc = "Abrir carpetas de ${host.displayName}",
+                                        minHeight = 36.dp
                                     ) {
                                         Text(
-                                            text = "ENTRAR",
+                                            text = "ABRIR",
                                             fontFamily = JetBrainsMonoFamily,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 9.5.sp,
@@ -566,7 +574,7 @@ private fun SambaNasTabContent(
 
             if (servers.isNotEmpty()) {
                 Text(
-                    text = "NAS guardados (${servers.size})",
+                    text = "Equipos guardados (${servers.size})",
                     style = MaterialTheme.typography.titleSmall,
                     color = WinampColors.TitleSilver
                 )
@@ -604,9 +612,9 @@ private fun SambaNasTabContent(
                                     )
                                     Text(
                                         text = buildString {
-                                            append("smb://${srv.host}")
-                                            if (srv.defaultShare.isNotBlank()) append("/${srv.defaultShare}")
-                                            append(if (srv.isGuest) " · Invitado" else " · ${srv.username}")
+                                            append(srv.host)
+                                            if (srv.defaultShare.isNotBlank()) append(" · ${srv.defaultShare}")
+                                            append(if (srv.isGuest) " · Sin clave" else " · ${srv.username}")
                                         },
                                         fontFamily = JetBrainsMonoFamily,
                                         fontSize = 10.sp,
@@ -622,13 +630,13 @@ private fun SambaNasTabContent(
                                     },
                                     modifier = Modifier.minimumInteractiveComponentSize()
                                 ) {
-                                    Icon(Icons.Filled.Edit, contentDescription = "Editar NAS", tint = WinampColors.EqGoldBright)
+                                    Icon(Icons.Filled.Edit, contentDescription = "Editar equipo", tint = WinampColors.EqGoldBright)
                                 }
                                 IconButton(
                                     onClick = { onDeleteServer(srv.id) },
                                     modifier = Modifier.minimumInteractiveComponentSize()
                                 ) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar NAS", tint = WinampColors.LcdPeakRed)
+                                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar equipo", tint = WinampColors.LcdPeakRed)
                                 }
                             }
                         }
@@ -636,7 +644,7 @@ private fun SambaNasTabContent(
                 }
             }
         } else {
-            // Active SMB Directory Browser
+            // Active Folder Browser (Clean everyday Spanish labels)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -645,8 +653,8 @@ private fun SambaNasTabContent(
                 WinampMetallicButton(
                     onClick = onNavigateUp,
                     testTag = "smb_nav_up",
-                    contentDesc = "Subir nivel o volver a servidores",
-                    minHeight = 38.dp
+                    contentDesc = "Volver a la carpeta anterior",
+                    minHeight = 40.dp
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -657,35 +665,21 @@ private fun SambaNasTabContent(
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = "${activeServer.alias} // ${browserState.currentShare}",
-                            fontFamily = JetBrainsMonoFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            color = WinampColors.TitleGold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        if (browserState.protocolLabel.isNotBlank()) {
-                            Text(
-                                text = browserState.protocolLabel,
-                                fontFamily = JetBrainsMonoFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 8.5.sp,
-                                color = WinampColors.LcdBlack,
-                                modifier = Modifier
-                                    .background(WinampColors.LcdGreen, RoundedCornerShape(2.dp))
-                                    .padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                    }
                     Text(
-                        text = "/${browserState.currentPath.replace('\\', '/')}",
+                        text = activeServer.alias,
+                        fontFamily = JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.5.sp,
+                        color = WinampColors.TitleGold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = when {
+                            browserState.currentShare == "/" -> "Elige una carpeta USB"
+                            browserState.currentPath.isBlank() -> "Carpeta: ${browserState.currentShare.ifBlank { "Inicio" }}"
+                            else -> "${browserState.currentShare}/${browserState.currentPath.replace('\\', '/')}"
+                        },
                         fontFamily = JetBrainsMonoFamily,
                         fontSize = 10.sp,
                         color = WinampColors.LcdGreen,
@@ -697,16 +691,16 @@ private fun SambaNasTabContent(
                 WinampMetallicButton(
                     onClick = onImportAllInFolder,
                     testTag = "smb_import_folder",
-                    contentDesc = "Importar audios de esta carpeta NAS",
-                    minHeight = 38.dp
+                    contentDesc = "Guardar toda la música de esta carpeta",
+                    minHeight = 40.dp
                 ) {
                     Icon(Icons.Filled.Download, contentDescription = null, tint = WinampColors.EqGoldBright, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("TODO", fontFamily = JetBrainsMonoFamily, fontSize = 9.5.sp, color = WinampColors.TextPrimary)
+                    Text("GUARDAR", fontFamily = JetBrainsMonoFamily, fontSize = 9.5.sp, color = WinampColors.TextPrimary)
                 }
 
                 TextButton(onClick = onCloseBrowser) {
-                    Text("Red", color = WinampColors.TextSecondary)
+                    Text("Equipos", color = WinampColors.TextSecondary)
                 }
             }
 
@@ -735,21 +729,37 @@ private fun SambaNasTabContent(
                             fontSize = 11.sp,
                             color = WinampColors.LcdPeakRed
                         )
-                        WinampMetallicButton(
-                            onClick = { onOpenServer(activeServer) },
-                            testTag = "smb_retry_btn",
-                            contentDesc = "Reintentar conexión con servidor NAS",
-                            minHeight = 36.dp
-                        ) {
-                            Icon(Icons.Filled.Refresh, contentDescription = null, tint = WinampColors.EqGoldBright, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                text = "REINTENTAR",
-                                fontFamily = JetBrainsMonoFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 9.5.sp,
-                                color = WinampColors.TitleGold
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            WinampMetallicButton(
+                                onClick = { onOpenServer(activeServer) },
+                                testTag = "smb_retry_btn",
+                                contentDesc = "Reintentar conexión",
+                                minHeight = 38.dp
+                            ) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null, tint = WinampColors.EqGoldBright, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = "REINTENTAR",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.5.sp,
+                                    color = WinampColors.TitleGold
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    editingServer = activeServer
+                                    showInlineForm = true
+                                    onCloseBrowser()
+                                }
+                            ) {
+                                Text(
+                                    text = "Ajustes avanzados",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontSize = 10.sp,
+                                    color = WinampColors.TitleSilver
+                                )
+                            }
                         }
                     }
                 }
@@ -766,7 +776,7 @@ private fun SambaNasTabContent(
                 if (!browserState.isLoading && browserState.entries.isEmpty() && browserState.errorMessage == null) {
                     item {
                         Text(
-                            text = "Carpeta vacía o sin pistas de audio compatibles.",
+                            text = "No vimos canciones compatibles dentro de esta carpeta.",
                             fontFamily = JetBrainsMonoFamily,
                             fontSize = 11.sp,
                             color = WinampColors.LcdGreenDim,
@@ -782,7 +792,7 @@ private fun SambaNasTabContent(
                                 onNavigateEntry(entry)
                                 if (!entry.isDirectory) onPlayStarted()
                             }
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                            .padding(horizontal = 8.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -790,12 +800,12 @@ private fun SambaNasTabContent(
                             imageVector = if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.AudioFile,
                             contentDescription = null,
                             tint = if (entry.isDirectory) WinampColors.EqGoldBright else WinampColors.LcdGreen,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                         Text(
                             text = entry.name,
                             fontFamily = JetBrainsMonoFamily,
-                            fontSize = 11.5.sp,
+                            fontSize = 12.sp,
                             color = if (entry.isDirectory) WinampColors.TitleGold else WinampColors.LcdGreen,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -841,11 +851,17 @@ private fun QuickDiscoveredAuthRow(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         HorizontalDivider(color = WinampColors.BevelHighlight.copy(alpha = 0.25f))
+        Text(
+            text = "Opciones avanzadas (solo si hace falta)",
+            fontFamily = JetBrainsMonoFamily,
+            fontSize = 9.5.sp,
+            color = WinampColors.TextSecondary
+        )
         OutlinedTextField(
             value = share,
             onValueChange = { share = it },
-            label = { Text("Carpeta compartida (opcional)") },
-            placeholder = { Text("Auto-detecta Music / Media / Shared") },
+            label = { Text("Carpeta inicial (opcional)") },
+            placeholder = { Text("Si la dejas vacía se busca sola") },
             singleLine = true,
             colors = textColors,
             modifier = Modifier.fillMaxWidth()
@@ -861,7 +877,7 @@ private fun QuickDiscoveredAuthRow(
                 onCheckedChange = { useCredentials = it },
                 colors = CheckboxDefaults.colors(checkedColor = WinampColors.EqGoldBright)
             )
-            Text("Usar usuario y contraseña", fontFamily = JetBrainsMonoFamily, fontSize = 11.sp)
+            Text("Este equipo pide usuario y clave", fontFamily = JetBrainsMonoFamily, fontSize = 11.sp)
         }
         if (useCredentials) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -876,7 +892,7 @@ private fun QuickDiscoveredAuthRow(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Clave") },
+                    label = { Text("Contraseña") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     colors = textColors,
@@ -887,12 +903,12 @@ private fun QuickDiscoveredAuthRow(
         WinampMetallicButton(
             onClick = { onConnect(share, !useCredentials, username, password) },
             testTag = "lan_connect_with_opts_${host.host}",
-            contentDesc = "Conectar a ${host.displayName}",
+            contentDesc = "Conectar con opciones a ${host.displayName}",
             minHeight = 40.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                text = "CONECTAR Y EXPLORAR",
+                text = "ENTRAR CON ESTOS DATOS",
                 fontFamily = JetBrainsMonoFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 10.sp,
@@ -935,7 +951,7 @@ private fun InlineSmbFormCard(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = if (initial == null) "Conexión manual Samba / NAS" else "Editar ${initial.alias}",
+                text = if (initial == null) "Ajustes avanzados · Añadir equipo" else "Editar ${initial.alias}",
                 fontFamily = JetBrainsMonoFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.5.sp,
@@ -945,8 +961,8 @@ private fun InlineSmbFormCard(
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
-                    label = { Text("IP o Host") },
-                    placeholder = { Text("192.168.1.50") },
+                    label = { Text("Dirección o nombre") },
+                    placeholder = { Text("gpon.net o 192.168.1.1") },
                     singleLine = true,
                     colors = textColors,
                     modifier = Modifier.weight(0.72f).testTag("smb_form_host")
@@ -973,8 +989,8 @@ private fun InlineSmbFormCard(
                 OutlinedTextField(
                     value = share,
                     onValueChange = { share = it },
-                    label = { Text("Share / Subcarpeta (opcional)") },
-                    placeholder = { Text("USB1_1/MUSICA") },
+                    label = { Text("Carpeta inicial (opcional)") },
+                    placeholder = { Text("Auto si queda vacía") },
                     singleLine = true,
                     colors = textColors,
                     modifier = Modifier.weight(1f).testTag("smb_form_share")
@@ -991,7 +1007,7 @@ private fun InlineSmbFormCard(
                     onCheckedChange = { isGuest = it },
                     colors = CheckboxDefaults.colors(checkedColor = WinampColors.LcdGreen)
                 )
-                Text("Acceso como Invitado (sin usuario)", fontFamily = JetBrainsMonoFamily, fontSize = 11.sp)
+                Text("Entrar sin usuario ni contraseña", fontFamily = JetBrainsMonoFamily, fontSize = 11.sp)
             }
             if (!isGuest) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1039,12 +1055,12 @@ private fun InlineSmbFormCard(
                         }
                     },
                     testTag = "smb_form_save",
-                    contentDesc = "Guardar y conectar servidor NAS",
+                    contentDesc = "Guardar y abrir carpetas",
                     minHeight = 42.dp,
                     modifier = Modifier.weight(0.65f)
                 ) {
                     Text(
-                        text = "GUARDAR Y CONECTAR",
+                        text = "GUARDAR Y ABRIR",
                         fontFamily = JetBrainsMonoFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 10.sp,
@@ -1077,7 +1093,7 @@ private fun YouTubeSearchTabContent(
             OutlinedTextField(
                 value = searchState.query,
                 onValueChange = onQueryChange,
-                placeholder = { Text("Buscar playlist o pegar URL...") },
+                placeholder = { Text("Buscar música o pegar enlace de YouTube...") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = WinampColors.LcdGreen) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -1123,7 +1139,7 @@ private fun YouTubeSearchTabContent(
 
         if (showingRecent) {
             Text(
-                text = "Playlists recientes de YouTube",
+                text = "Listas escuchadas recientemente",
                 style = MaterialTheme.typography.titleSmall,
                 color = WinampColors.TitleSilver
             )
@@ -1141,7 +1157,7 @@ private fun YouTubeSearchTabContent(
                 item {
                     Box(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                         Text(
-                            text = "Escribe un género, artista o pega un enlace de playlist de YouTube para reproducir remotamente.",
+                            text = "Escribe un artista, género o pega un enlace de YouTube para escucharlo aquí, incluso con la pantalla apagada.",
                             fontFamily = JetBrainsMonoFamily,
                             fontSize = 11.sp,
                             color = WinampColors.LcdGreenDim

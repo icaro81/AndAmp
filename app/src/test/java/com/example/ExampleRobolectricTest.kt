@@ -537,6 +537,12 @@ class ExampleRobolectricTest {
     composeTestRule.onNodeWithTag("add_tab_nas").performClick()
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("smb_scan_lan_button").assertIsDisplayed()
+    composeTestRule.onNodeWithText("BUSCAR EN MI WI-FI").assertIsDisplayed()
     composeTestRule.onNodeWithTag("smb_manual_toggle_button").assertIsDisplayed()
+    composeTestRule.onNodeWithText("AVANZADO").assertIsDisplayed()
+
+    val autoRetryState = YouTubePlaybackState(hasAutoRetriedPrivacy = true, privacyEnhancedMode = true)
+    assertEquals(true, autoRetryState.hasAutoRetriedPrivacy)
+    assertEquals(true, autoRetryState.privacyEnhancedMode)
   }
 }

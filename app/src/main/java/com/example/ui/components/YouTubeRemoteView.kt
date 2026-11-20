@@ -87,15 +87,11 @@ fun YouTubeRemotePlayerBox(
                         // Keep playing continuously when app is minimized or screen turns off
                         enableBackgroundPlayback(true)
 
-                        val originUrl = if (privacyEnhancedMode) {
-                            "https://www.youtube-nocookie.com"
-                        } else {
-                            "https://www.youtube.com"
-                        }
+                        val packageOrigin = "https://${ctx.packageName}"
                         val options = IFramePlayerOptions.Builder(ctx)
                             .controls(1)
                             .privacyEnhancedMode(privacyEnhancedMode)
-                            .origin(originUrl)
+                            .origin(packageOrigin)
                             .listType("playlist")
                             .list(playlistId)
                             .build()
@@ -137,7 +133,15 @@ fun YouTubeRemotePlayerBox(
                                 youTubePlayer: YouTubePlayer,
                                 error: PlayerConstants.PlayerError
                             ) {
-                                onError("Error YouTube (${error.name}). Prueba NOCOOKIE o CUENTA YT.")
+                                val msg = when (error) {
+                                    PlayerConstants.PlayerError.VIDEO_NOT_PLAYABLE_IN_EMBEDDED_PLAYER ->
+                                        "Este video no permite reproducirse fuera de YouTube. Prueba el siguiente video o Ajustes."
+                                    PlayerConstants.PlayerError.VIDEO_NOT_FOUND ->
+                                        "No se encontró este video en la lista."
+                                    else ->
+                                        "No se pudo cargar este video ahora. Prueba recargar o revisar Ajustes."
+                                }
+                                onError(msg)
                             }
                         }, options)
 
@@ -168,6 +172,7 @@ private fun configureEmbeddedWebViews(root: View) {
             root.settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
+                mediaPlaybackRequiresUserGesture = false
                 @Suppress("DEPRECATION")
                 databaseEnabled = true
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE

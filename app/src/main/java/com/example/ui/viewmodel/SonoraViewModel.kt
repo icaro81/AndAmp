@@ -442,7 +442,7 @@ class SonoraViewModel(
                         discoveredHosts = hosts,
                         hasScannedOnce = true,
                         errorMessage = if (hosts.isEmpty()) {
-                            "No se detectaron equipos SMB en esta red Wi-Fi"
+                            "No encontramos routers ni equipos compartidos en este Wi-Fi"
                         } else null
                     )
                 },
@@ -718,12 +718,13 @@ class SonoraViewModel(
         _youTubePlaybackState.update { state ->
             val nextPrivacy = !state.privacyEnhancedMode
             _statusMessage.value = if (nextPrivacy) {
-                "YouTube en modo sin cookies (youtube-nocookie)"
+                "Modo alternativo de YouTube activado"
             } else {
-                "YouTube en modo estándar"
+                "Modo estándar de YouTube activado"
             }
             state.copy(
                 privacyEnhancedMode = nextPrivacy,
+                hasAutoRetriedPrivacy = true,
                 reloadNonce = state.reloadNonce + 1,
                 errorMessage = null
             )
@@ -734,7 +735,7 @@ class SonoraViewModel(
         _youTubePlaybackState.update { state ->
             state.copy(reloadNonce = state.reloadNonce + 1, errorMessage = null)
         }
-        _statusMessage.value = "Reproductor YouTube recargado con la sesión actual"
+        _statusMessage.value = "Reproductor de YouTube actualizado"
     }
 
     fun bindYouTubePlayer(player: YouTubePlayer) {
@@ -772,6 +773,18 @@ class SonoraViewModel(
     }
 
     fun onYouTubeError(message: String) {
+        val current = _youTubePlaybackState.value
+        if (!current.hasAutoRetriedPrivacy && !current.privacyEnhancedMode) {
+            _youTubePlaybackState.update {
+                it.copy(
+                    privacyEnhancedMode = true,
+                    hasAutoRetriedPrivacy = true,
+                    reloadNonce = it.reloadNonce + 1,
+                    errorMessage = null
+                )
+            }
+            return
+        }
         _youTubePlaybackState.update { it.copy(isPlaying = false, errorMessage = message) }
         _statusMessage.value = message
     }

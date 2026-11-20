@@ -158,6 +158,7 @@ data class YouTubePlaybackState(
     val durationSeconds: Float = 0f,
     val currentVideoId: String = "",
     val privacyEnhancedMode: Boolean = false,
+    val hasAutoRetriedPrivacy: Boolean = false,
     val reloadNonce: Int = 0,
     val errorMessage: String? = null
 )

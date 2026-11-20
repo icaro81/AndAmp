@@ -24,14 +24,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Eject
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -126,6 +130,7 @@ fun PlayerDeckModule(
     modifier: Modifier = Modifier
 ) {
     var showYouTubeLoginDialog by remember { mutableStateOf(false) }
+    var showYouTubeOptionsMenu by remember { mutableStateOf(false) }
     val isYouTube = playbackSourceMode == PlaybackSourceMode.YOUTUBE_REMOTE &&
         youTubeState.activePlaylist != null
     val activeYtPlaylist = youTubeState.activePlaylist
@@ -185,43 +190,115 @@ fun PlayerDeckModule(
                             .testTag("player_marquee_lcd")
                     )
                 }
-                WinampMetallicButton(
-                    onClick = onToggleYouTubePrivacyMode,
-                    testTag = "btn_youtube_nocookie",
-                    contentDesc = "Alternar modo sin cookies YouTube",
-                    showLed = true,
-                    ledActive = youTubeState.privacyEnhancedMode,
-                    minHeight = 28.dp
-                ) {
-                    Icon(Icons.Filled.Security, contentDescription = null, tint = WinampColors.LcdGreen, modifier = Modifier.size(12.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        text = if (youTubeState.privacyEnhancedMode) "PRIVADO" else "NOCOOKIE",
-                        fontFamily = JetBrainsMonoFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 8.sp,
-                        color = WinampColors.LcdGreen
-                    )
-                }
-                WinampMetallicButton(
-                    onClick = { showYouTubeLoginDialog = true },
-                    testTag = "btn_youtube_login",
-                    contentDesc = "Iniciar sesión en cuenta YouTube",
-                    minHeight = 28.dp
-                ) {
-                    Icon(Icons.Filled.AccountCircle, contentDescription = null, tint = WinampColors.EqGoldBright, modifier = Modifier.size(12.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text("CUENTA", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = 8.sp, color = WinampColors.TitleGold)
+                Box {
+                    WinampMetallicButton(
+                        onClick = { showYouTubeOptionsMenu = true },
+                        testTag = "btn_youtube_options",
+                        contentDesc = "Opciones avanzadas de YouTube",
+                        minHeight = 28.dp
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = null,
+                            tint = WinampColors.TitleSilver,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(Modifier.width(2.dp))
+                        Text(
+                            text = "AJUSTES",
+                            fontFamily = JetBrainsMonoFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.5.sp,
+                            color = WinampColors.TitleSilver
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showYouTubeOptionsMenu,
+                        onDismissRequest = { showYouTubeOptionsMenu = false },
+                        containerColor = WinampColors.ChassisSurface
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Iniciar sesión en YouTube",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontSize = 11.sp,
+                                    color = WinampColors.TitleGold
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.AccountCircle,
+                                    contentDescription = null,
+                                    tint = WinampColors.EqGoldBright
+                                )
+                            },
+                            onClick = {
+                                showYouTubeOptionsMenu = false
+                                showYouTubeLoginDialog = true
+                            },
+                            modifier = Modifier.testTag("btn_youtube_login")
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = if (youTubeState.privacyEnhancedMode) {
+                                        "Modo alternativo (Activado)"
+                                    } else {
+                                        "Probar modo alternativo privado"
+                                    },
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontSize = 11.sp,
+                                    color = WinampColors.LcdGreen
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Security,
+                                    contentDescription = null,
+                                    tint = if (youTubeState.privacyEnhancedMode) WinampColors.LcdGreen else WinampColors.TitleSilver
+                                )
+                            },
+                            onClick = {
+                                showYouTubeOptionsMenu = false
+                                onToggleYouTubePrivacyMode()
+                            },
+                            modifier = Modifier.testTag("btn_youtube_nocookie")
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Recargar video",
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontSize = 11.sp,
+                                    color = WinampColors.TextPrimary
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = null,
+                                    tint = WinampColors.TitleSilver
+                                )
+                            },
+                            onClick = {
+                                showYouTubeOptionsMenu = false
+                                onReloadYouTubePlayer()
+                            },
+                            modifier = Modifier.testTag("btn_youtube_reload")
+                        )
+                    }
                 }
                 WinampMetallicButton(
                     onClick = onExitYouTube,
                     testTag = "btn_exit_youtube",
-                    contentDesc = "Volver a audio local o NAS",
+                    contentDesc = "Volver a música local o de red",
                     minHeight = 28.dp
                 ) {
                     Icon(Icons.Filled.Close, contentDescription = null, tint = WinampColors.EqGoldBright, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(3.dp))
-                    Text("HI-RES", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = WinampColors.TitleGold)
+                    Text("SALIR", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, color = WinampColors.TitleGold)
                 }
             }
 
