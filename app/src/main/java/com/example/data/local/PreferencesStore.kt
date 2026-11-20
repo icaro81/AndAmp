@@ -28,7 +28,26 @@ data class AppUpdatePrefs(
     val skippedVersion: String = ""
 ) {
     companion object {
-        const val DEFAULT_GITHUB_REPO = "usuario/AndAmp"
+        const val DEFAULT_GITHUB_REPO = "icaro81/AndAmp"
+
+        fun normalizeRepo(raw: String?): String {
+            val cleaned = raw.orEmpty()
+                .trim()
+                .removePrefix("https://github.com/")
+                .removePrefix("http://github.com/")
+                .removeSuffix(".git")
+                .trim('/')
+            return if (
+                cleaned.isBlank() ||
+                cleaned.equals("usuario/AndAmp", ignoreCase = true) ||
+                cleaned.equals("tu-usuario/AndAmp", ignoreCase = true) ||
+                cleaned.equals("owner/AndAmp", ignoreCase = true)
+            ) {
+                DEFAULT_GITHUB_REPO
+            } else {
+                cleaned
+            }
+        }
     }
 }
 
@@ -69,8 +88,7 @@ class PreferencesStore(context: Context) {
 
     val appUpdatePrefsFlow: Flow<AppUpdatePrefs> = dataStore.data.map { prefs ->
         AppUpdatePrefs(
-            githubRepo = prefs[Keys.GITHUB_UPDATE_REPO]?.takeIf { it.isNotBlank() }
-                ?: AppUpdatePrefs.DEFAULT_GITHUB_REPO,
+            githubRepo = AppUpdatePrefs.normalizeRepo(prefs[Keys.GITHUB_UPDATE_REPO]),
             skippedVersion = prefs[Keys.SKIPPED_UPDATE_VERSION].orEmpty()
         )
     }
@@ -93,11 +111,7 @@ class PreferencesStore(context: Context) {
     }
 
     suspend fun setGithubUpdateRepo(repo: String) {
-        val normalized = repo.trim()
-            .removePrefix("https://github.com/")
-            .removePrefix("http://github.com/")
-            .trim('/')
-            .ifBlank { AppUpdatePrefs.DEFAULT_GITHUB_REPO }
+        val normalized = AppUpdatePrefs.normalizeRepo(repo)
         dataStore.edit { prefs ->
             prefs[Keys.GITHUB_UPDATE_REPO] = normalized
         }

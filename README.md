@@ -6,14 +6,14 @@ Reproductor de audio Hi-Res para Android inspirado en el clásico rack metálico
 
 El proyecto incluye el workflow `.github/workflows/android-ci.yml` listo para ejecutarse sin configuración adicional en la pestaña **Actions**:
 
-1. Crea un repositorio nuevo en GitHub (por ejemplo `tu-usuario/AndAmp`).
-2. Sube el proyecto a la rama `main`:
+1. Repositorio oficial de GitHub: `icaro81/AndAmp`.
+2. Sube cambios a la rama `main`:
    ```bash
    git init
    git add .
    git commit -m "Initial AndAmp release"
    git branch -M main
-   git remote add origin https://github.com/tu-usuario/AndAmp.git
+   git remote add origin https://github.com/icaro81/AndAmp.git
    git push -u origin main
    ```
 3. Cada `push` a `main` ejecuta las pruebas unitarias/Robolectric, sube el artefacto en **Actions → Summary** y publica/actualiza una **Pre-release (`latest-ci`)** en la pestaña **Releases** del repositorio con descarga directa del archivo `.apk` (visible incluso sin iniciar sesión).
@@ -22,4 +22,4 @@ El proyecto incluye el workflow `.github/workflows/android-ci.yml` listo para ej
    git tag v1.0.1
    git push origin v1.0.1
    ```
-5. Dentro de **AndAmp**, abre **MISC → ACTUALIZACIONES** e ingresa `tu-usuario/AndAmp` para que la app compruebe, anuncie, descargue e instale nuevas versiones oficiales directamente sin abrir el navegador.
+5. Dentro de **AndAmp**, abre **MISC → ACTUALIZACIONES**: ya viene preconfigurado con `icaro81/AndAmp` para comprobar, anunciar, descargar e instalar nuevas versiones oficiales directamente sin abrir el navegador.

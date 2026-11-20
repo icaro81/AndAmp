@@ -83,6 +83,9 @@ class ExampleRobolectricTest {
     assertEquals("1.0.2", info?.version)
     assertEquals(18500000L, info?.fileSizeBytes)
     assertNull(com.example.update.AppUpdateManager.parseLatestReleaseJson(json, "1.0.2"))
+    assertEquals("icaro81/AndAmp", com.example.data.local.AppUpdatePrefs().githubRepo)
+    assertEquals("icaro81/AndAmp", com.example.data.local.AppUpdatePrefs.normalizeRepo("usuario/AndAmp"))
+    assertEquals("icaro81/AndAmp", com.example.data.local.AppUpdatePrefs.normalizeRepo("https://github.com/icaro81/AndAmp.git"))
   }
 
   @Test

@@ -455,7 +455,7 @@ fun MiscManagerSheet(
                         OutlinedTextField(
                             value = repoText,
                             onValueChange = { repoText = it },
-                            label = { Text("Repo GitHub (usuario/AndAmp)") },
+                            label = { Text("Repo GitHub (icaro81/AndAmp)") },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedContainerColor = WinampColors.LcdBlack,

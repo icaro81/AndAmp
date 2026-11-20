@@ -61,9 +61,14 @@ class AppUpdateManager(private val context: Context) {
             val normalizedRepo = repo.trim()
                 .removePrefix("https://github.com/")
                 .removePrefix("http://github.com/")
+                .removeSuffix(".git")
                 .trim('/')
-            require(normalizedRepo.count { it == '/' } == 1 && !normalizedRepo.startsWith("usuario/")) {
-                "Configura tu repositorio GitHub (ej. tu-usuario/AndAmp) en MISC → Actualizaciones"
+            require(
+                normalizedRepo.count { it == '/' } == 1 &&
+                    !normalizedRepo.startsWith("usuario/", ignoreCase = true) &&
+                    !normalizedRepo.startsWith("tu-usuario/", ignoreCase = true)
+            ) {
+                "Configura un repositorio GitHub válido (ej. icaro81/AndAmp) en MISC → Actualizaciones"
             }
 
             val req = Request.Builder()
