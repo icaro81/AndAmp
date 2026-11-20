@@ -65,6 +65,7 @@ data class SmbBrowserUiState(
     val activeServer: SmbServerProfile? = null,
     val currentShare: String = "",
     val currentPath: String = "",
+    val protocolLabel: String = "",
     val entries: List<SmbBrowserEntry> = emptyList(),
     val isLoading: Boolean = false,
     val errorMessage: String? = null
@@ -527,16 +528,32 @@ class SonoraViewModel(
     }
 
     fun navigateSmbEntry(entry: SmbBrowserEntry) {
-        val server = _smbBrowserState.value.activeServer ?: return
+        val st = _smbBrowserState.value
+        val server = st.activeServer ?: return
         if (entry.isDirectory) {
             loadSmbDirectory(server, entry.shareName, entry.relativePath)
         } else {
             viewModelScope.launch {
                 _smbBrowserState.update { it.copy(isLoading = true, errorMessage = null) }
-                val added = smbRepository.importSmbEntries(server, listOf(entry), _activePlaylistId.value)
+                val protoHint = if (st.protocolLabel.contains("SMB1", ignoreCase = true)) "smb1" else ""
+                val added = smbRepository.importSmbEntries(
+                    server = server,
+                    entries = listOf(entry),
+                    targetPlaylistId = _activePlaylistId.value,
+                    protocolHint = st.protocolLabel
+                )
                 _smbBrowserState.update { it.copy(isLoading = false) }
-                val targetUri = SmbRepository.buildSmbUri(server.id, entry.shareName, entry.relativePath, entry.name)
+                val targetUri = SmbRepository.buildSmbUri(
+                    serverId = server.id,
+                    shareName = entry.shareName,
+                    relativePath = entry.relativePath,
+                    fileName = entry.name,
+                    protocolHint = protoHint
+                )
                 val track = allTracks.value.firstOrNull { it.uriString == targetUri }
+                    ?: allTracks.value.firstOrNull {
+                        it.uriString == SmbRepository.buildSmbUri(server.id, entry.shareName, entry.relativePath, entry.name)
+                    }
                 if (track != null) {
                     playTrackFromDisplayed(track)
                 }
@@ -571,7 +588,12 @@ class SonoraViewModel(
         }
         viewModelScope.launch {
             _smbBrowserState.update { it.copy(isLoading = true) }
-            val count = smbRepository.importSmbEntries(server, audioEntries, _activePlaylistId.value)
+            val count = smbRepository.importSmbEntries(
+                server = server,
+                entries = audioEntries,
+                targetPlaylistId = _activePlaylistId.value,
+                protocolHint = st.protocolLabel
+            )
             _smbBrowserState.update { it.copy(isLoading = false) }
             _statusMessage.value = if (count > 0) {
                 "$count pista(s) del NAS importadas"
@@ -583,28 +605,33 @@ class SonoraViewModel(
 
     private fun loadSmbDirectory(server: SmbServerProfile, shareName: String, relativePath: String) {
         viewModelScope.launch {
+            val (cleanShare, cleanRelPath) = SmbRepository.splitShareAndSubpath(
+                rawShare = shareName.ifBlank { server.defaultShare },
+                currentRelPath = relativePath
+            )
             _smbBrowserState.value = SmbBrowserUiState(
                 activeServer = server,
-                currentShare = shareName,
-                currentPath = relativePath,
+                currentShare = cleanShare,
+                currentPath = cleanRelPath,
                 isLoading = true
             )
-            val result = smbRepository.listDirectory(server, shareName, relativePath)
+            val result = smbRepository.listDirectory(server, cleanShare, cleanRelPath)
             result.fold(
-                onSuccess = { (resolvedShare, entries) ->
+                onSuccess = { listing ->
                     _smbBrowserState.value = SmbBrowserUiState(
                         activeServer = server,
-                        currentShare = resolvedShare,
-                        currentPath = relativePath,
-                        entries = entries,
+                        currentShare = listing.resolvedShare,
+                        currentPath = listing.resolvedPath,
+                        protocolLabel = listing.protocolLabel,
+                        entries = listing.entries,
                         isLoading = false
                     )
                 },
                 onFailure = { err ->
                     _smbBrowserState.value = SmbBrowserUiState(
                         activeServer = server,
-                        currentShare = shareName,
-                        currentPath = relativePath,
+                        currentShare = cleanShare,
+                        currentPath = cleanRelPath,
                         entries = emptyList(),
                         isLoading = false,
                         errorMessage = err.localizedMessage ?: "No se pudo conectar al servidor NAS"
@@ -685,6 +712,29 @@ class SonoraViewModel(
         _youTubePlaybackState.value = YouTubePlaybackState()
         PlaybackService.stopYouTubeBackground(appContext)
         pushEqToAudioEngines(_eqSettings.value)
+    }
+
+    fun toggleYouTubePrivacyMode() {
+        _youTubePlaybackState.update { state ->
+            val nextPrivacy = !state.privacyEnhancedMode
+            _statusMessage.value = if (nextPrivacy) {
+                "YouTube en modo sin cookies (youtube-nocookie)"
+            } else {
+                "YouTube en modo estándar"
+            }
+            state.copy(
+                privacyEnhancedMode = nextPrivacy,
+                reloadNonce = state.reloadNonce + 1,
+                errorMessage = null
+            )
+        }
+    }
+
+    fun reloadYouTubePlayer() {
+        _youTubePlaybackState.update { state ->
+            state.copy(reloadNonce = state.reloadNonce + 1, errorMessage = null)
+        }
+        _statusMessage.value = "Reproductor YouTube recargado con la sesión actual"
     }
 
     fun bindYouTubePlayer(player: YouTubePlayer) {

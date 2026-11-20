@@ -131,6 +131,8 @@ fun WinampRackScreen(
     onYouTubeProgress: (Float, Float?) -> Unit,
     onYouTubeVideoChanged: (String) -> Unit,
     onYouTubeError: (String) -> Unit,
+    onToggleYouTubePrivacyMode: () -> Unit = {},
+    onReloadYouTubePlayer: () -> Unit = {},
     onSaveUpdateRepo: (String) -> Unit = {},
     onCheckUpdates: () -> Unit = {},
     onCheckUpdatesForRepo: ((String) -> Unit)? = null,
@@ -291,7 +293,9 @@ fun WinampRackScreen(
                                 onYouTubeStateChanged = onYouTubeStateChanged,
                                 onYouTubeProgress = onYouTubeProgress,
                                 onYouTubeVideoChanged = onYouTubeVideoChanged,
-                                onYouTubeError = onYouTubeError
+                                onYouTubeError = onYouTubeError,
+                                onToggleYouTubePrivacyMode = onToggleYouTubePrivacyMode,
+                                onReloadYouTubePlayer = onReloadYouTubePlayer
                             )
                         }
 
@@ -374,7 +378,9 @@ fun WinampRackScreen(
                         onYouTubeStateChanged = onYouTubeStateChanged,
                         onYouTubeProgress = onYouTubeProgress,
                         onYouTubeVideoChanged = onYouTubeVideoChanged,
-                        onYouTubeError = onYouTubeError
+                        onYouTubeError = onYouTubeError,
+                        onToggleYouTubePrivacyMode = onToggleYouTubePrivacyMode,
+                        onReloadYouTubePlayer = onReloadYouTubePlayer
                     )
                     EqualizerModule(
                         eqSettings = eqSettings,
@@ -444,7 +450,9 @@ fun WinampRackScreen(
                     onYouTubeStateChanged = onYouTubeStateChanged,
                     onYouTubeProgress = onYouTubeProgress,
                     onYouTubeVideoChanged = onYouTubeVideoChanged,
-                    onYouTubeError = onYouTubeError
+                    onYouTubeError = onYouTubeError,
+                    onToggleYouTubePrivacyMode = onToggleYouTubePrivacyMode,
+                    onReloadYouTubePlayer = onReloadYouTubePlayer
                 )
 
                 EqualizerModule(

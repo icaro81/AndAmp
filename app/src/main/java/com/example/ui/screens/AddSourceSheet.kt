@@ -657,15 +657,33 @@ private fun SambaNasTabContent(
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "${activeServer.alias} // ${browserState.currentShare}",
-                        fontFamily = JetBrainsMonoFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        color = WinampColors.TitleGold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "${activeServer.alias} // ${browserState.currentShare}",
+                            fontFamily = JetBrainsMonoFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = WinampColors.TitleGold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (browserState.protocolLabel.isNotBlank()) {
+                            Text(
+                                text = browserState.protocolLabel,
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 8.5.sp,
+                                color = WinampColors.LcdBlack,
+                                modifier = Modifier
+                                    .background(WinampColors.LcdGreen, RoundedCornerShape(2.dp))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
                     Text(
                         text = "/${browserState.currentPath.replace('\\', '/')}",
                         fontFamily = JetBrainsMonoFamily,
@@ -701,12 +719,40 @@ private fun SambaNasTabContent(
             }
 
             browserState.errorMessage?.let { err ->
-                Text(
-                    text = err,
-                    fontFamily = JetBrainsMonoFamily,
-                    fontSize = 11.sp,
-                    color = WinampColors.LcdPeakRed
-                )
+                Surface(
+                    color = WinampColors.LcdBlack,
+                    border = BorderStroke(1.dp, WinampColors.LcdPeakRed.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(3.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = err,
+                            fontFamily = JetBrainsMonoFamily,
+                            fontSize = 11.sp,
+                            color = WinampColors.LcdPeakRed
+                        )
+                        WinampMetallicButton(
+                            onClick = { onOpenServer(activeServer) },
+                            testTag = "smb_retry_btn",
+                            contentDesc = "Reintentar conexión con servidor NAS",
+                            minHeight = 36.dp
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, tint = WinampColors.EqGoldBright, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = "REINTENTAR",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.5.sp,
+                                color = WinampColors.TitleGold
+                            )
+                        }
+                    }
+                }
             }
 
             LazyColumn(
@@ -927,8 +973,8 @@ private fun InlineSmbFormCard(
                 OutlinedTextField(
                     value = share,
                     onValueChange = { share = it },
-                    label = { Text("Carpeta Share (opcional)") },
-                    placeholder = { Text("Music") },
+                    label = { Text("Share / Subcarpeta (opcional)") },
+                    placeholder = { Text("USB1_1/MUSICA") },
                     singleLine = true,
                     colors = textColors,
                     modifier = Modifier.weight(1f).testTag("smb_form_share")

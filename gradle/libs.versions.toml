@@ -43,6 +43,7 @@ googleid = "1.1.1"
 media3 = "1.6.1"
 kotlinxSerializationJson = "1.8.0"
 smbj = "0.15.0"
+jcifsNg = "2.1.10"
 slf4jAndroid = "1.7.36"
 androidYoutubePlayer = "13.1.0"
 
@@ -105,6 +106,7 @@ androidx-media3-common = { group = "androidx.media3", name = "media3-common", ve
 androidx-media3-extractor = { group = "androidx.media3", name = "media3-extractor", version.ref = "media3" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbj" }
+jcifs-ng = { group = "eu.agno3.jcifs", name = "jcifs-ng", version.ref = "jcifsNg" }
 slf4j-android = { group = "org.slf4j", name = "slf4j-android", version.ref = "slf4jAndroid" }
 android-youtube-player = { group = "com.pierfrancescosoffritti.androidyoutubeplayer", name = "core", version.ref = "androidYoutubePlayer" }
 

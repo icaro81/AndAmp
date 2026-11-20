@@ -107,7 +107,7 @@ class SmbDataSource(
         if (toRead <= 0) return C.RESULT_END_OF_INPUT
 
         val readCount = try {
-            handle.file.read(buffer, fileOffset, offset, toRead)
+            handle.readAt(fileOffset, buffer, offset, toRead)
         } catch (e: Exception) {
             throw IOException("Error leyendo flujo SMB: ${e.message}", e)
         }

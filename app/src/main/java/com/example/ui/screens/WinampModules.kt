@@ -21,19 +21,24 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Eject
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,6 +68,7 @@ import com.example.ui.components.WinampModulePanel
 import com.example.ui.components.WinampModuleTitleBar
 import com.example.ui.components.WinampSeekSlider
 import com.example.ui.components.WinampVerticalFaderBank
+import com.example.ui.components.YouTubeAccountLoginDialog
 import com.example.ui.components.YouTubeRemotePlayerBox
 import com.example.ui.components.formatShortTime
 import com.example.ui.components.formatWinampTime
@@ -115,8 +121,11 @@ fun PlayerDeckModule(
     onYouTubeProgress: (Float, Float?) -> Unit,
     onYouTubeVideoChanged: (String) -> Unit,
     onYouTubeError: (String) -> Unit,
+    onToggleYouTubePrivacyMode: () -> Unit = {},
+    onReloadYouTubePlayer: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var showYouTubeLoginDialog by remember { mutableStateOf(false) }
     val isYouTube = playbackSourceMode == PlaybackSourceMode.YOUTUBE_REMOTE &&
         youTubeState.activePlaylist != null
     val activeYtPlaylist = youTubeState.activePlaylist
@@ -160,7 +169,7 @@ fun PlayerDeckModule(
                     .fillMaxWidth()
                     .padding(bottom = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 WinampLcdBox(modifier = Modifier.weight(1f)) {
                     Text(
@@ -175,6 +184,34 @@ fun PlayerDeckModule(
                             .basicMarquee()
                             .testTag("player_marquee_lcd")
                     )
+                }
+                WinampMetallicButton(
+                    onClick = onToggleYouTubePrivacyMode,
+                    testTag = "btn_youtube_nocookie",
+                    contentDesc = "Alternar modo sin cookies YouTube",
+                    showLed = true,
+                    ledActive = youTubeState.privacyEnhancedMode,
+                    minHeight = 28.dp
+                ) {
+                    Icon(Icons.Filled.Security, contentDescription = null, tint = WinampColors.LcdGreen, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        text = if (youTubeState.privacyEnhancedMode) "PRIVADO" else "NOCOOKIE",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 8.sp,
+                        color = WinampColors.LcdGreen
+                    )
+                }
+                WinampMetallicButton(
+                    onClick = { showYouTubeLoginDialog = true },
+                    testTag = "btn_youtube_login",
+                    contentDesc = "Iniciar sesión en cuenta YouTube",
+                    minHeight = 28.dp
+                ) {
+                    Icon(Icons.Filled.AccountCircle, contentDescription = null, tint = WinampColors.EqGoldBright, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text("CUENTA", fontFamily = JetBrainsMonoFamily, fontWeight = FontWeight.Bold, fontSize = 8.sp, color = WinampColors.TitleGold)
                 }
                 WinampMetallicButton(
                     onClick = onExitYouTube,
@@ -203,6 +240,8 @@ fun PlayerDeckModule(
                         YouTubeRemotePlayerBox(
                             playlistId = activeYtPlaylist.playlistId,
                             initialSeekSeconds = youTubeState.currentSeconds,
+                            privacyEnhancedMode = youTubeState.privacyEnhancedMode,
+                            reloadNonce = youTubeState.reloadNonce,
                             onBindPlayer = onBindYouTubePlayer,
                             onUnbindPlayer = onUnbindYouTubePlayer,
                             onPlayingChanged = onYouTubeStateChanged,
@@ -276,6 +315,8 @@ fun PlayerDeckModule(
                     YouTubeRemotePlayerBox(
                         playlistId = activeYtPlaylist.playlistId,
                         initialSeekSeconds = youTubeState.currentSeconds,
+                        privacyEnhancedMode = youTubeState.privacyEnhancedMode,
+                        reloadNonce = youTubeState.reloadNonce,
                         onBindPlayer = onBindYouTubePlayer,
                         onUnbindPlayer = onUnbindYouTubePlayer,
                         onPlayingChanged = onYouTubeStateChanged,
@@ -499,6 +540,16 @@ fun PlayerDeckModule(
                 onCycleRepeat = onCycleRepeat
             )
         }
+    }
+
+    if (showYouTubeLoginDialog) {
+        YouTubeAccountLoginDialog(
+            onLoginCompletedAndReload = {
+                showYouTubeLoginDialog = false
+                onReloadYouTubePlayer()
+            },
+            onDismiss = { showYouTubeLoginDialog = false }
+        )
     }
 }
 

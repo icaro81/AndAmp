@@ -146,6 +146,7 @@ dependencies {
   // implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.smbj)
+  implementation(libs.jcifs.ng)
   implementation(libs.slf4j.android)
   implementation(libs.android.youtube.player)
   // implementation(libs.play.services.location)

@@ -124,6 +124,34 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `smb share and subpath splitting handles gpon router paths and protocol hints`() {
+    val (share, path) = com.example.data.repository.SmbRepository.splitShareAndSubpath("USB1_1/MUSICA", "")
+    assertEquals("USB1_1", share)
+    assertEquals("MUSICA", path)
+
+    val (shareNested, pathNested) = com.example.data.repository.SmbRepository.splitShareAndSubpath(
+      "\\USB1_1\\MUSICA",
+      "ROCK\\90s"
+    )
+    assertEquals("USB1_1", shareNested)
+    assertEquals("MUSICA\\ROCK\\90s", pathNested)
+
+    assertEquals("gpon.net", com.example.data.repository.SmbRepository.normalizeHost("smb://gpon.net/"))
+
+    val uri = android.net.Uri.parse(
+      com.example.data.repository.SmbRepository.buildSmbUri(
+        serverId = 7L,
+        shareName = "USB1_1",
+        relativePath = "MUSICA\\Track.flac",
+        fileName = "Track.flac",
+        protocolHint = "smb1"
+      )
+    )
+    assertEquals("smb1", uri.getQueryParameter("proto"))
+    assertEquals("USB1_1", uri.getQueryParameter("share"))
+  }
+
+  @Test
   fun `youtube playlist id extraction handles urls and raw ids`() {
     assertEquals(
       "PL1234567890ABCDEF",
@@ -138,6 +166,10 @@ class ExampleRobolectricTest {
       YouTubeRepository.extractPlaylistId("PLabcdef123456")
     )
     assertNull(YouTubeRepository.extractPlaylistId("jazz hi-fi chill"))
+
+    val ytState = YouTubePlaybackState(privacyEnhancedMode = true, reloadNonce = 2)
+    assertEquals(true, ytState.privacyEnhancedMode)
+    assertEquals(2, ytState.reloadNonce)
   }
 
   @Test

@@ -215,6 +215,8 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
                 onYouTubeProgress = viewModel::onYouTubeProgress,
                 onYouTubeVideoChanged = viewModel::onYouTubeVideoChanged,
                 onYouTubeError = viewModel::onYouTubeError,
+                onToggleYouTubePrivacyMode = viewModel::toggleYouTubePrivacyMode,
+                onReloadYouTubePlayer = viewModel::reloadYouTubePlayer,
                 onSaveUpdateRepo = viewModel::saveGithubUpdateRepo,
                 onCheckUpdates = { viewModel.checkForUpdates(manual = true) },
                 onCheckUpdatesForRepo = { repo -> viewModel.checkForUpdates(manual = true, repoOverride = repo) },
