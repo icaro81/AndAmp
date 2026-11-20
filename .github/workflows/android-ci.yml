@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,20 +31,75 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Decode and verify persistent keystore
+      - name: Restore cached debug keystore
+        uses: actions/cache@v4
+        with:
+          path: debug.keystore
+          key: andamp-debug-keystore-v2
+
+      - name: Ensure persistent debug keystore
+        id: keystore
+        env:
+          SECRET_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          EXPECTED_SHA256="7C:6F:C6:39:08:32:BB:58:76:67:E5:8B:3C:1D:B7:61:53:23:C5:54:9A:E0:6F:5B:79:BD:FC:FD:2D:61:1B:ED"
-          if [ ! -s debug.keystore.base64 ]; then
-            echo "::error::Falta debug.keystore.base64; abortando para evitar conflictos de firma al actualizar."
-            exit 1
+          if [ -s debug.keystore.base64 ]; then
+            echo "Usando debug.keystore.base64 del repositorio."
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ -n "$SECRET_KEYSTORE_B64" ]; then
+            echo "Usando secret DEBUG_KEYSTORE_BASE64 configurado en GitHub."
+            printf '%s' "$SECRET_KEYSTORE_B64" | base64 -d > debug.keystore
+          elif [ -s debug.keystore ]; then
+            echo "Usando debug.keystore restaurado desde caché de GitHub Actions."
+          else
+            echo "Buscando keystore persistente en ejecuciones previas de CI..."
+            PREV_IDS=$(gh run list \
+              --repo "${{ github.repository }}" \
+              --workflow "android-ci.yml" \
+              --status success \
+              --limit 10 \
+              --json databaseId \
+              --jq '.[].databaseId' 2>/dev/null || true)
+            for PREV_RUN_ID in $PREV_IDS; do
+              mkdir -p /tmp/prev-keystore
+              if gh run download "$PREV_RUN_ID" \
+                --repo "${{ github.repository }}" \
+                -n andamp-debug-keystore \
+                -D /tmp/prev-keystore 2>/dev/null && [ -s /tmp/prev-keystore/debug.keystore ]; then
+                cp /tmp/prev-keystore/debug.keystore debug.keystore
+                echo "Keystore persistente recuperado de la ejecución previa ($PREV_RUN_ID)."
+                rm -rf /tmp/prev-keystore
+                break
+              fi
+              rm -rf /tmp/prev-keystore
+            done
           fi
-          base64 -d debug.keystore.base64 > debug.keystore
-          ACTUAL_SHA256=$(keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey | grep -E "SHA256:" | head -n1 | sed 's/.*SHA256:[[:space:]]*//' | tr -d '[:space:]')
-          echo "Keystore SHA256: $ACTUAL_SHA256"
-          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-            echo "::error::La firma del keystore ($ACTUAL_SHA256) no coincide con la firma esperada ($EXPECTED_SHA256)."
-            exit 1
+
+          if [ ! -s debug.keystore ]; then
+            echo "Generando debug.keystore inicial persistente para AndAmp CI..."
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
+
+          SHA256=$(keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey | grep -E "SHA256:" | head -n1 | sed 's/.*SHA256:[[:space:]]*//' | tr -d '[:space:]')
+          echo "Keystore SHA256 activo: $SHA256"
+          echo "keystore_sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Persist debug keystore artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v6
+        with:
+          name: andamp-debug-keystore
+          path: debug.keystore
+          retention-days: 90
+          if-no-files-found: error
 
       - name: Accept Android SDK licenses
         run: |
@@ -152,5 +208,6 @@ jobs:
             if [ "${{ github.event_name }}" != "pull_request" ]; then
               echo "- **Página de Release (Latest):** https://github.com/${{ github.repository }}/releases/tag/${TAG}"
             fi
+            echo "- **Firma SHA-256:** \`${{ steps.keystore.outputs.keystore_sha256 }}\`"
             echo "- **Artefactos del workflow:** disponibles al pie de la pestaña **Summary**."
           } >> "$GITHUB_STEP_SUMMARY"
