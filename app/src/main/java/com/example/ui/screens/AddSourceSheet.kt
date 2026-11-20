@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
@@ -33,10 +34,11 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.WifiFind
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,6 +56,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +74,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.domain.model.DiscoveredSmbHost
 import com.example.domain.model.Playlist
 import com.example.domain.model.SmbBrowserEntry
 import com.example.domain.model.SmbServerProfile
@@ -79,6 +83,7 @@ import com.example.domain.model.YouTubePlaylistSummary
 import com.example.ui.components.WinampMetallicButton
 import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.theme.WinampColors
+import com.example.ui.viewmodel.LanScanUiState
 import com.example.ui.viewmodel.SmbBrowserUiState
 import com.example.ui.viewmodel.YouTubeSearchUiState
 
@@ -96,13 +101,16 @@ fun AddSourceSheet(
     isImporting: Boolean,
     smbServers: List<SmbServerProfile>,
     smbBrowserState: SmbBrowserUiState,
+    lanScanState: LanScanUiState,
     youTubeSearchState: YouTubeSearchUiState,
     recentYouTubePlaylists: List<YouTubePlaylistSummary>,
     onDismiss: () -> Unit,
     onImportFiles: () -> Unit,
     onImportFolder: () -> Unit,
     onAddTrackToPlaylist: (Long, Long) -> Unit,
-    onSaveSmbServer: (SmbServerProfile) -> Unit,
+    onScanLanSmb: () -> Unit,
+    onConnectDiscoveredSmb: (DiscoveredSmbHost, String, Boolean, String, String) -> Unit,
+    onSaveAndConnectSmb: (SmbServerProfile) -> Unit,
     onDeleteSmbServer: (Long) -> Unit,
     onOpenSmbServer: (SmbServerProfile) -> Unit,
     onNavigateSmbEntry: (SmbBrowserEntry) -> Unit,
@@ -137,7 +145,6 @@ fun AddSourceSheet(
                 color = WinampColors.TitleGold
             )
 
-            // 3 Winamp Metallic Source Mode Tabs
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -177,7 +184,10 @@ fun AddSourceSheet(
                 AddSourceTab.NAS -> SambaNasTabContent(
                     servers = smbServers,
                     browserState = smbBrowserState,
-                    onSaveServer = onSaveSmbServer,
+                    lanScanState = lanScanState,
+                    onScanLan = onScanLanSmb,
+                    onConnectDiscovered = onConnectDiscoveredSmb,
+                    onSaveAndConnectServer = onSaveAndConnectSmb,
                     onDeleteServer = onDeleteSmbServer,
                     onOpenServer = onOpenSmbServer,
                     onNavigateEntry = onNavigateSmbEntry,
@@ -329,7 +339,10 @@ private fun LocalImportTabContent(
 private fun SambaNasTabContent(
     servers: List<SmbServerProfile>,
     browserState: SmbBrowserUiState,
-    onSaveServer: (SmbServerProfile) -> Unit,
+    lanScanState: LanScanUiState,
+    onScanLan: () -> Unit,
+    onConnectDiscovered: (DiscoveredSmbHost, String, Boolean, String, String) -> Unit,
+    onSaveAndConnectServer: (SmbServerProfile) -> Unit,
     onDeleteServer: (Long) -> Unit,
     onOpenServer: (SmbServerProfile) -> Unit,
     onNavigateEntry: (SmbBrowserEntry) -> Unit,
@@ -338,69 +351,233 @@ private fun SambaNasTabContent(
     onImportAllInFolder: () -> Unit,
     onPlayStarted: () -> Unit
 ) {
+    var showInlineForm by remember { mutableStateOf(false) }
     var editingServer by remember { mutableStateOf<SmbServerProfile?>(null) }
-    var showFormDialog by remember { mutableStateOf(false) }
+    var selectedHostForAuth by remember { mutableStateOf<DiscoveredSmbHost?>(null) }
 
     val activeServer = browserState.activeServer
 
+    LaunchedEffect(Unit) {
+        if (!lanScanState.hasScannedOnce && !lanScanState.isScanning) {
+            onScanLan()
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (activeServer == null) {
+            // Streamlined top action bar: Scan LAN + Manual inline form
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "Servidores Samba / NAS guardados",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = WinampColors.TitleSilver
-                )
+                WinampMetallicButton(
+                    onClick = onScanLan,
+                    testTag = "smb_scan_lan_button",
+                    contentDesc = "Escanear red Wi-Fi buscando servidores NAS y Samba",
+                    showLed = true,
+                    ledActive = lanScanState.isScanning,
+                    minHeight = 46.dp,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = if (lanScanState.isScanning) Icons.Filled.Refresh else Icons.Filled.WifiFind,
+                        contentDescription = null,
+                        tint = WinampColors.LcdGreen,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (lanScanState.isScanning) "ESCANEANDO..." else "ESCANEAR RED LAN",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        color = WinampColors.LcdGreen
+                    )
+                }
+
                 WinampMetallicButton(
                     onClick = {
                         editingServer = null
-                        showFormDialog = true
+                        showInlineForm = !showInlineForm
                     },
-                    testTag = "smb_new_server_button",
-                    contentDesc = "Nuevo servidor Samba o NAS",
-                    minHeight = 40.dp
+                    testTag = "smb_manual_toggle_button",
+                    contentDesc = "Agregar servidor manualmente",
+                    showLed = showInlineForm,
+                    ledActive = showInlineForm,
+                    minHeight = 46.dp
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, tint = WinampColors.LcdGreen, modifier = Modifier.size(16.dp))
+                    Icon(
+                        imageVector = if (showInlineForm) Icons.Filled.Close else Icons.Filled.Add,
+                        contentDescription = null,
+                        tint = WinampColors.EqGoldBright,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Spacer(Modifier.width(4.dp))
-                    Text("NUEVO NAS", fontFamily = JetBrainsMonoFamily, fontSize = 10.sp, color = WinampColors.TextPrimary)
+                    Text(
+                        text = "MANUAL",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        color = WinampColors.TitleGold
+                    )
                 }
             }
 
-            if (servers.isEmpty()) {
+            if (lanScanState.isScanning) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = WinampColors.LcdGreen,
+                    trackColor = WinampColors.LcdBlack
+                )
+            }
+
+            // Inline compact manual / edit form (replaces clunky nested dialog)
+            if (showInlineForm) {
+                InlineSmbFormCard(
+                    initial = editingServer,
+                    onCancel = {
+                        showInlineForm = false
+                        editingServer = null
+                    },
+                    onSaveAndConnect = { profile ->
+                        onSaveAndConnectServer(profile)
+                        showInlineForm = false
+                        editingServer = null
+                    }
+                )
+            }
+
+            // Discovered hosts on LAN
+            if (lanScanState.discoveredHosts.isNotEmpty() || lanScanState.errorMessage != null) {
+                Text(
+                    text = if (lanScanState.discoveredHosts.isNotEmpty()) {
+                        "Equipos detectados en tu red (${lanScanState.discoveredHosts.size})"
+                    } else {
+                        "Escaneo de red"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    color = WinampColors.TitleSilver
+                )
+            }
+
+            lanScanState.errorMessage?.takeIf { lanScanState.discoveredHosts.isEmpty() }?.let { msg ->
                 Surface(
                     color = WinampColors.LcdBlack,
                     border = BorderStroke(1.dp, WinampColors.BevelShadow),
                     shape = RoundedCornerShape(3.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Filled.Storage, contentDescription = null, tint = WinampColors.EqGoldBright)
-                        Text(
-                            text = "Sin servidores NAS guardados.\nAñade tu IP local (SMBv2/v3), carpeta compartida y acceso.",
-                            fontFamily = JetBrainsMonoFamily,
-                            fontSize = 11.sp,
-                            color = WinampColors.LcdGreenDim
-                        )
-                    }
+                    Text(
+                        text = "$msg. Usa MANUAL si tu NAS está en otra subred o puerto.",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontSize = 10.5.sp,
+                        color = WinampColors.LcdGreenDim,
+                        modifier = Modifier.padding(10.dp)
+                    )
                 }
-            } else {
-                LazyColumn(
+            }
+
+            if (lanScanState.discoveredHosts.isNotEmpty()) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 260.dp)
                         .background(WinampColors.LcdBlack, RoundedCornerShape(3.dp))
                         .padding(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(servers, key = { it.id }) { srv ->
+                    lanScanState.discoveredHosts.forEach { host ->
+                        val isExpanded = selectedHostForAuth?.host == host.host
+                        Surface(
+                            color = WinampColors.ChassisSurfaceBottom,
+                            border = BorderStroke(
+                                1.dp,
+                                if (isExpanded) WinampColors.EqGoldBright else WinampColors.BevelHighlight.copy(alpha = 0.35f)
+                            ),
+                            shape = RoundedCornerShape(3.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("lan_discovered_host_${host.host}")
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedHostForAuth = if (isExpanded) null else host
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Storage,
+                                        contentDescription = null,
+                                        tint = WinampColors.LcdGreen,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = host.displayName,
+                                            fontFamily = JetBrainsMonoFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.5.sp,
+                                            color = WinampColors.LcdGreen,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "smb://${host.host}:${host.port} · ${host.source}",
+                                            fontFamily = JetBrainsMonoFamily,
+                                            fontSize = 9.5.sp,
+                                            color = WinampColors.TextSecondary,
+                                            maxLines = 1
+                                        )
+                                    }
+                                    WinampMetallicButton(
+                                        onClick = {
+                                            onConnectDiscovered(host, "", true, "", "")
+                                        },
+                                        testTag = "lan_quick_guest_${host.host}",
+                                        contentDesc = "Conectar en 1 toque como invitado a ${host.displayName}",
+                                        minHeight = 34.dp
+                                    ) {
+                                        Text(
+                                            text = "ENTRAR",
+                                            fontFamily = JetBrainsMonoFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 9.5.sp,
+                                            color = WinampColors.TitleGold
+                                        )
+                                    }
+                                }
+
+                                if (isExpanded) {
+                                    QuickDiscoveredAuthRow(
+                                        host = host,
+                                        onConnect = { share, isGuest, user, pass ->
+                                            onConnectDiscovered(host, share, isGuest, user, pass)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (servers.isNotEmpty()) {
+                Text(
+                    text = "NAS guardados (${servers.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = WinampColors.TitleSilver
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(WinampColors.LcdBlack, RoundedCornerShape(3.dp))
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    servers.forEach { srv ->
                         Surface(
                             onClick = { onOpenServer(srv) },
                             color = WinampColors.ChassisSurfaceBottom,
@@ -441,7 +618,7 @@ private fun SambaNasTabContent(
                                 IconButton(
                                     onClick = {
                                         editingServer = srv
-                                        showFormDialog = true
+                                        showInlineForm = true
                                     },
                                     modifier = Modifier.minimumInteractiveComponentSize()
                                 ) {
@@ -511,7 +688,7 @@ private fun SambaNasTabContent(
                 }
 
                 TextButton(onClick = onCloseBrowser) {
-                    Text("Lista", color = WinampColors.TextSecondary)
+                    Text("Red", color = WinampColors.TextSecondary)
                 }
             }
 
@@ -591,16 +768,245 @@ private fun SambaNasTabContent(
             }
         }
     }
+}
 
-    if (showFormDialog) {
-        SmbServerFormDialog(
-            initial = editingServer,
-            onDismiss = { showFormDialog = false },
-            onSave = { profile ->
-                onSaveServer(profile)
-                showFormDialog = false
-            }
+@Composable
+private fun QuickDiscoveredAuthRow(
+    host: DiscoveredSmbHost,
+    onConnect: (String, Boolean, String, String) -> Unit
+) {
+    var share by remember(host.host) { mutableStateOf("") }
+    var useCredentials by remember(host.host) { mutableStateOf(false) }
+    var username by remember(host.host) { mutableStateOf("") }
+    var password by remember(host.host) { mutableStateOf("") }
+
+    val textColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = WinampColors.LcdBlack,
+        unfocusedContainerColor = WinampColors.LcdBlack,
+        focusedTextColor = WinampColors.LcdGreen,
+        unfocusedTextColor = WinampColors.LcdGreen,
+        focusedBorderColor = WinampColors.EqGoldBright
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        HorizontalDivider(color = WinampColors.BevelHighlight.copy(alpha = 0.25f))
+        OutlinedTextField(
+            value = share,
+            onValueChange = { share = it },
+            label = { Text("Carpeta compartida (opcional)") },
+            placeholder = { Text("Auto-detecta Music / Media / Shared") },
+            singleLine = true,
+            colors = textColors,
+            modifier = Modifier.fillMaxWidth()
         )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { useCredentials = !useCredentials }
+        ) {
+            Checkbox(
+                checked = useCredentials,
+                onCheckedChange = { useCredentials = it },
+                colors = CheckboxDefaults.colors(checkedColor = WinampColors.EqGoldBright)
+            )
+            Text("Usar usuario y contraseña", fontFamily = JetBrainsMonoFamily, fontSize = 11.sp)
+        }
+        if (useCredentials) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("Usuario") },
+                    singleLine = true,
+                    colors = textColors,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Clave") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    colors = textColors,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        WinampMetallicButton(
+            onClick = { onConnect(share, !useCredentials, username, password) },
+            testTag = "lan_connect_with_opts_${host.host}",
+            contentDesc = "Conectar a ${host.displayName}",
+            minHeight = 40.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = "CONECTAR Y EXPLORAR",
+                fontFamily = JetBrainsMonoFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                color = WinampColors.LcdGreen
+            )
+        }
+    }
+}
+
+@Composable
+private fun InlineSmbFormCard(
+    initial: SmbServerProfile?,
+    onCancel: () -> Unit,
+    onSaveAndConnect: (SmbServerProfile) -> Unit
+) {
+    var host by remember(initial) { mutableStateOf(initial?.host ?: "") }
+    var alias by remember(initial) { mutableStateOf(initial?.alias ?: "") }
+    var share by remember(initial) { mutableStateOf(initial?.defaultShare ?: "") }
+    var portText by remember(initial) { mutableStateOf((initial?.port ?: 445).toString()) }
+    var isGuest by remember(initial) { mutableStateOf(initial?.isGuest ?: true) }
+    var username by remember(initial) { mutableStateOf(initial?.username ?: "") }
+    var password by remember(initial) { mutableStateOf(initial?.password ?: "") }
+
+    val textColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = WinampColors.LcdBlack,
+        unfocusedContainerColor = WinampColors.LcdBlack,
+        focusedTextColor = WinampColors.LcdGreen,
+        unfocusedTextColor = WinampColors.LcdGreen,
+        focusedBorderColor = WinampColors.EqGoldBright
+    )
+
+    Surface(
+        color = WinampColors.ChassisSurfaceBottom,
+        border = BorderStroke(1.dp, WinampColors.EqGoldBright.copy(alpha = 0.6f)),
+        shape = RoundedCornerShape(4.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = if (initial == null) "Conexión manual Samba / NAS" else "Editar ${initial.alias}",
+                fontFamily = JetBrainsMonoFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.5.sp,
+                color = WinampColors.TitleGold
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it },
+                    label = { Text("IP o Host") },
+                    placeholder = { Text("192.168.1.50") },
+                    singleLine = true,
+                    colors = textColors,
+                    modifier = Modifier.weight(0.72f).testTag("smb_form_host")
+                )
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = { portText = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Puerto") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = textColors,
+                    modifier = Modifier.weight(0.28f)
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(
+                    value = alias,
+                    onValueChange = { alias = it },
+                    label = { Text("Nombre (opcional)") },
+                    singleLine = true,
+                    colors = textColors,
+                    modifier = Modifier.weight(1f).testTag("smb_form_alias")
+                )
+                OutlinedTextField(
+                    value = share,
+                    onValueChange = { share = it },
+                    label = { Text("Carpeta Share (opcional)") },
+                    placeholder = { Text("Music") },
+                    singleLine = true,
+                    colors = textColors,
+                    modifier = Modifier.weight(1f).testTag("smb_form_share")
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isGuest = !isGuest }
+            ) {
+                Checkbox(
+                    checked = isGuest,
+                    onCheckedChange = { isGuest = it },
+                    colors = CheckboxDefaults.colors(checkedColor = WinampColors.LcdGreen)
+                )
+                Text("Acceso como Invitado (sin usuario)", fontFamily = JetBrainsMonoFamily, fontSize = 11.sp)
+            }
+            if (!isGuest) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        label = { Text("Usuario") },
+                        singleLine = true,
+                        colors = textColors,
+                        modifier = Modifier.weight(1f).testTag("smb_form_user")
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Contraseña") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = textColors,
+                        modifier = Modifier.weight(1f).testTag("smb_form_pass")
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(onClick = onCancel, modifier = Modifier.weight(0.35f)) {
+                    Text("Cancelar", color = WinampColors.TextSecondary)
+                }
+                WinampMetallicButton(
+                    onClick = {
+                        if (host.isNotBlank()) {
+                            onSaveAndConnect(
+                                SmbServerProfile(
+                                    id = initial?.id ?: 0L,
+                                    alias = alias.trim().ifBlank { host.trim() },
+                                    host = host.trim(),
+                                    port = portText.toIntOrNull()?.coerceIn(1, 65535) ?: 445,
+                                    defaultShare = share.trim(),
+                                    username = if (isGuest) "" else username.trim(),
+                                    password = if (isGuest) "" else password,
+                                    isGuest = isGuest
+                                )
+                            )
+                        }
+                    },
+                    testTag = "smb_form_save",
+                    contentDesc = "Guardar y conectar servidor NAS",
+                    minHeight = 42.dp,
+                    modifier = Modifier.weight(0.65f)
+                ) {
+                    Text(
+                        text = "GUARDAR Y CONECTAR",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        color = WinampColors.LcdGreen
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -772,139 +1178,4 @@ private fun YouTubeSearchTabContent(
             }
         }
     }
-}
-
-@Composable
-private fun SmbServerFormDialog(
-    initial: SmbServerProfile?,
-    onDismiss: () -> Unit,
-    onSave: (SmbServerProfile) -> Unit
-) {
-    var alias by remember { mutableStateOf(initial?.alias ?: "") }
-    var host by remember { mutableStateOf(initial?.host ?: "") }
-    var portText by remember { mutableStateOf((initial?.port ?: 445).toString()) }
-    var share by remember { mutableStateOf(initial?.defaultShare ?: "") }
-    var isGuest by remember { mutableStateOf(initial?.isGuest ?: true) }
-    var username by remember { mutableStateOf(initial?.username ?: "") }
-    var password by remember { mutableStateOf(initial?.password ?: "") }
-
-    val textColors = OutlinedTextFieldDefaults.colors(
-        focusedContainerColor = WinampColors.LcdBlack,
-        unfocusedContainerColor = WinampColors.LcdBlack,
-        focusedTextColor = WinampColors.LcdGreen,
-        unfocusedTextColor = WinampColors.LcdGreen,
-        focusedBorderColor = WinampColors.EqGoldBright
-    )
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = WinampColors.ChassisSurface,
-        titleContentColor = WinampColors.TitleGold,
-        textContentColor = WinampColors.TextPrimary,
-        title = { Text(if (initial == null) "Nuevo Servidor Samba / NAS" else "Editar Servidor NAS") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = alias,
-                    onValueChange = { alias = it },
-                    label = { Text("Nombre (ej. NAS Casa)") },
-                    singleLine = true,
-                    colors = textColors,
-                    modifier = Modifier.fillMaxWidth().testTag("smb_form_alias")
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedTextField(
-                        value = host,
-                        onValueChange = { host = it },
-                        label = { Text("IP o Host") },
-                        placeholder = { Text("192.168.1.50") },
-                        singleLine = true,
-                        colors = textColors,
-                        modifier = Modifier.weight(0.7f).testTag("smb_form_host")
-                    )
-                    OutlinedTextField(
-                        value = portText,
-                        onValueChange = { portText = it.filter { ch -> ch.isDigit() } },
-                        label = { Text("Puerto") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        colors = textColors,
-                        modifier = Modifier.weight(0.3f)
-                    )
-                }
-                OutlinedTextField(
-                    value = share,
-                    onValueChange = { share = it },
-                    label = { Text("Carpeta compartida (Share)") },
-                    placeholder = { Text("Music") },
-                    singleLine = true,
-                    colors = textColors,
-                    modifier = Modifier.fillMaxWidth().testTag("smb_form_share")
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isGuest = !isGuest }
-                ) {
-                    Checkbox(
-                        checked = isGuest,
-                        onCheckedChange = { isGuest = it },
-                        colors = CheckboxDefaults.colors(checkedColor = WinampColors.LcdGreen)
-                    )
-                    Text("Acceso como Invitado (sin usuario)")
-                }
-                if (!isGuest) {
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = { Text("Usuario") },
-                        singleLine = true,
-                        colors = textColors,
-                        modifier = Modifier.fillMaxWidth().testTag("smb_form_user")
-                    )
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Contraseña") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        colors = textColors,
-                        modifier = Modifier.fillMaxWidth().testTag("smb_form_pass")
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (host.isNotBlank()) {
-                        onSave(
-                            SmbServerProfile(
-                                id = initial?.id ?: 0L,
-                                alias = alias.ifBlank { host.trim() },
-                                host = host.trim(),
-                                port = portText.toIntOrNull()?.coerceIn(1, 65535) ?: 445,
-                                defaultShare = share.trim(),
-                                username = if (isGuest) "" else username.trim(),
-                                password = if (isGuest) "" else password,
-                                isGuest = isGuest
-                            )
-                        )
-                    }
-                },
-                modifier = Modifier.testTag("smb_form_save")
-            ) {
-                Text("Guardar", color = WinampColors.LcdGreen)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancelar", color = WinampColors.TextSecondary)
-            }
-        }
-    )
 }

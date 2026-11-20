@@ -33,6 +33,7 @@ import com.example.audio.AudioOutputInfo
 import com.example.audio.PlaybackUiState
 import com.example.data.local.AppUpdatePrefs
 import com.example.data.local.EqSettingsState
+import com.example.domain.model.DiscoveredSmbHost
 import com.example.domain.model.EqPreset
 import com.example.domain.model.PlaybackSourceMode
 import com.example.domain.model.Playlist
@@ -44,6 +45,7 @@ import com.example.domain.model.YouTubePlaylistSummary
 import com.example.ui.components.WinampMetallicButton
 import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.theme.WinampColors
+import com.example.ui.viewmodel.LanScanUiState
 import com.example.ui.viewmodel.LibraryFormatFilter
 import com.example.ui.viewmodel.SmbBrowserUiState
 import com.example.ui.viewmodel.YouTubeSearchUiState
@@ -70,6 +72,7 @@ fun WinampRackScreen(
     isImporting: Boolean,
     smbServers: List<SmbServerProfile>,
     smbBrowserState: SmbBrowserUiState,
+    lanScanState: LanScanUiState = LanScanUiState(),
     youTubeSearchState: YouTubeSearchUiState,
     recentYouTubePlaylists: List<YouTubePlaylistSummary>,
     appUpdatePrefs: AppUpdatePrefs = AppUpdatePrefs(),
@@ -106,6 +109,9 @@ fun WinampRackScreen(
     onMoveSelectedInPlaylist: (Int) -> Unit,
     onLaunchFilePicker: () -> Unit,
     onLaunchFolderPicker: () -> Unit,
+    onScanLanSmb: () -> Unit = {},
+    onConnectDiscoveredSmb: (DiscoveredSmbHost, String, Boolean, String, String) -> Unit = { _, _, _, _, _ -> },
+    onSaveAndConnectSmb: ((SmbServerProfile) -> Unit)? = null,
     onSaveSmbServer: (SmbServerProfile) -> Unit,
     onDeleteSmbServer: (Long) -> Unit,
     onOpenSmbServer: (SmbServerProfile) -> Unit,
@@ -153,6 +159,7 @@ fun WinampRackScreen(
         val isCompactWidth = maxWidth < 370.dp
         val isWidePortraitTablet = !isLandscape && maxWidth >= 700.dp
 
+        val availableLandscapeHeight = (maxHeight - 48.dp).coerceAtLeast(220.dp)
         val sizing = RackSizing(
             isLandscape = isLandscape,
             isCompactWidth = isCompactWidth,
@@ -163,23 +170,26 @@ fun WinampRackScreen(
                 else -> 6.dp
             },
             spectrumHeight = when {
-                isLandscape -> (maxHeight * 0.115f).coerceIn(36.dp, 46.dp)
+                isLandscape -> (availableLandscapeHeight * 0.16f).coerceIn(32.dp, 64.dp)
                 else -> (maxHeight * 0.052f).coerceIn(32.dp, 50.dp)
             },
             eqFaderHeight = when {
-                isLandscape -> (maxHeight - 175.dp).coerceIn(104.dp, 180.dp)
+                isLandscape -> (availableLandscapeHeight - 106.dp).coerceIn(104.dp, 260.dp)
                 else -> (maxHeight * 0.16f).coerceIn(106.dp, 162.dp)
             },
             playlistMinHeight = (maxHeight * 0.25f).coerceIn(170.dp, 260.dp),
             playlistMaxHeight = (maxHeight * 0.34f).coerceIn(220.dp, 380.dp),
-            transportButtonHeight = if (!isLandscape && maxWidth >= 700.dp) 44.dp else 38.dp,
-            footerButtonHeight = if (!isLandscape && maxWidth >= 700.dp) 42.dp else 38.dp,
+            transportButtonHeight = if (isLandscape || maxWidth >= 700.dp) 42.dp else 38.dp,
+            footerButtonHeight = if (isLandscape || maxWidth >= 700.dp) 40.dp else 38.dp,
             timerFontSize = when {
+                isLandscape && maxWidth >= 820.dp -> 23.sp
                 isLandscape -> 20.sp
                 maxWidth >= 700.dp -> 24.sp
                 isCompactWidth -> 18.sp
                 else -> 21.sp
-            }
+            },
+            youtubePortraitMaxHeight = (maxHeight * 0.31f).coerceIn(165.dp, 320.dp),
+            youtubeLandscapeMaxHeight = (availableLandscapeHeight - 62.dp).coerceIn(135.dp, 340.dp)
         )
 
         val currentPosMs = if (playbackSourceMode == PlaybackSourceMode.YOUTUBE_REMOTE) {
@@ -191,7 +201,7 @@ fun WinampRackScreen(
         if (isLandscape) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = 560.dp)
+                    .widthIn(max = 1120.dp)
                     .fillMaxSize()
                     .padding(horizontal = sizing.horizontalPadding, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -203,7 +213,7 @@ fun WinampRackScreen(
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     tabTitles.forEachIndexed { idx, label ->
                         val selected = pagerState.currentPage == idx
@@ -231,6 +241,7 @@ fun WinampRackScreen(
 
                 HorizontalPager(
                     state = pagerState,
+                    beyondViewportPageCount = 2,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
@@ -465,6 +476,7 @@ fun WinampRackScreen(
             isImporting = isImporting,
             smbServers = smbServers,
             smbBrowserState = smbBrowserState,
+            lanScanState = lanScanState,
             youTubeSearchState = youTubeSearchState,
             recentYouTubePlaylists = recentYouTubePlaylists,
             onDismiss = { showAddSheet = false },
@@ -477,7 +489,11 @@ fun WinampRackScreen(
                 onLaunchFolderPicker()
             },
             onAddTrackToPlaylist = onAddTrackToPlaylist,
-            onSaveSmbServer = onSaveSmbServer,
+            onScanLanSmb = onScanLanSmb,
+            onConnectDiscoveredSmb = onConnectDiscoveredSmb,
+            onSaveAndConnectSmb = { profile ->
+                (onSaveAndConnectSmb ?: onSaveSmbServer)(profile)
+            },
             onDeleteSmbServer = onDeleteSmbServer,
             onOpenSmbServer = onOpenSmbServer,
             onNavigateSmbEntry = onNavigateSmbEntry,

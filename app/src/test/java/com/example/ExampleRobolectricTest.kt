@@ -339,4 +339,134 @@ class ExampleRobolectricTest {
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("misc_check_updates_btn").performScrollTo().assertIsDisplayed()
   }
+
+  @Test
+  fun `library seeding leaves only andamp droid intro and cleans legacy sample files`() = kotlinx.coroutines.test.runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = com.example.data.local.SonoraDatabase.build(context)
+    val repo = com.example.data.repository.LibraryRepository(
+      context = context,
+      trackDao = db.trackDao(),
+      playlistDao = db.playlistDao(),
+      eqPresetDao = db.eqPresetDao()
+    )
+    // Simulate legacy sample file pre-existing before update
+    val sampleDir = java.io.File(context.filesDir, "reference_samples").apply { mkdirs() }
+    java.io.File(sampleDir, "andamp_only_samples_v1.flag").delete()
+    val legacyFlac = java.io.File(sampleDir, "nocturne_96k_24b.flac").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+    val legacyUri = android.net.Uri.fromFile(legacyFlac).toString()
+    db.trackDao().upsertTrack(
+      com.example.data.local.TrackEntity.fromDomain(
+        Track(
+          uriString = legacyUri,
+          title = "Nocturne en Obsidiana",
+          artist = "Sample",
+          album = "Old",
+          durationMs = 10_000L,
+          format = AudioFormatBadge.FLAC,
+          sampleRateHz = 96_000,
+          bitDepth = 24,
+          bitrateKbps = 2000,
+          isReferenceTrack = true
+        )
+      )
+    )
+
+    repo.ensureReferenceLibrarySeeded()
+    val all = db.trackDao().getTrackCount()
+    assertEquals(1, all)
+    assertNull(db.trackDao().getByUri(legacyUri))
+    val introUri = android.net.Uri.fromFile(java.io.File(sampleDir, "andamp_droid_intro.wav")).toString()
+    val intro = db.trackDao().getByUri(introUri)
+    assertEquals("Droid Whippin' Intro", intro?.title)
+    db.close()
+  }
+
+  @Test
+  @Config(sdk = [36], qualifiers = "w411dp-h915dp-xxhdpi")
+  fun `add sheet nas tab shows lan scanner and manual connect controls`() {
+    composeTestRule.setContent {
+      SonoraTheme {
+        WinampRackScreen(
+          playbackState = PlaybackUiState(),
+          playbackSourceMode = PlaybackSourceMode.MEDIA3_AUDIO,
+          youTubeState = YouTubePlaybackState(),
+          spectrumBars = FloatArray(24),
+          outputInfo = AudioOutputInfo(),
+          eqSettings = EqSettingsState(),
+          customEqPresets = emptyList(),
+          allTracks = emptyList(),
+          displayedTracks = emptyList(),
+          playlists = emptyList(),
+          activePlaylist = null,
+          selectedTrackId = null,
+          searchQuery = "",
+          selectedFilter = LibraryFormatFilter.ALL,
+          isImporting = false,
+          smbServers = emptyList(),
+          smbBrowserState = SmbBrowserUiState(),
+          youTubeSearchState = YouTubeSearchUiState(),
+          recentYouTubePlaylists = emptyList(),
+          onPlayExplicit = {},
+          onPauseExplicit = {},
+          onStopPlayback = {},
+          onSkipPrevious = {},
+          onSkipNext = {},
+          onSeekTo = {},
+          onToggleShuffle = {},
+          onCycleRepeat = {},
+          onEqEnabledChange = {},
+          onEqAutoToggle = {},
+          onPreampChange = {},
+          onBandChange = { _, _ -> },
+          onApplyPreset = {},
+          onResetEqFlat = {},
+          onSaveCustomPreset = {},
+          onDeleteCustomPreset = {},
+          onPlayTrack = {},
+          onSelectTrack = {},
+          onRemoveSelectedOrActive = {},
+          onSelectPlaylist = {},
+          onCreatePlaylist = { _, _ -> },
+          onRenamePlaylist = { _, _, _ -> },
+          onDeletePlaylist = {},
+          onAddTrackToPlaylist = { _, _ -> },
+          onToggleFavorite = {},
+          onToggleBitPerfectUsb = {},
+          onSearchQueryChange = {},
+          onSelectFilter = {},
+          onPlayAll = {},
+          onMoveSelectedInPlaylist = {},
+          onLaunchFilePicker = {},
+          onLaunchFolderPicker = {},
+          onSaveSmbServer = {},
+          onDeleteSmbServer = {},
+          onOpenSmbServer = {},
+          onNavigateSmbEntry = {},
+          onNavigateSmbUp = {},
+          onCloseSmbBrowser = {},
+          onImportAllSmbInFolder = {},
+          onYouTubeQueryChange = {},
+          onSearchYouTube = {},
+          onPlayYouTubePlaylist = {},
+          onDeleteRecentYouTube = {},
+          onExitYouTube = {},
+          onBindYouTubePlayer = {},
+          onUnbindYouTubePlayer = {},
+          onYouTubeStateChanged = {},
+          onYouTubeProgress = { _, _ -> },
+          onYouTubeVideoChanged = {},
+          onYouTubeError = {}
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("btn_playlist_add").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("add_tab_nas").performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("smb_scan_lan_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("smb_manual_toggle_button").assertIsDisplayed()
+  }
 }

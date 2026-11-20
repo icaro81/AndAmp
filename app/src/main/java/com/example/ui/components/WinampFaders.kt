@@ -2,9 +2,10 @@ package com.example.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +21,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -254,6 +257,8 @@ private fun WinampVerticalSlider(
     modifier: Modifier = Modifier
 ) {
     var heightPx by remember { mutableFloatStateOf(1f) }
+    var lastTapTimeMs by remember { mutableLongStateOf(0L) }
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
     val normalized = ((valueDb - minDb) / (maxDb - minDb)).coerceIn(0f, 1f)
     val zeroNorm = ((0f - minDb) / (maxDb - minDb)).coerceIn(0f, 1f)
 
@@ -269,21 +274,38 @@ private fun WinampVerticalSlider(
                 .semantics { contentDescription = contentDesc }
                 .onSizeChanged { heightPx = it.height.toFloat().coerceAtLeast(1f) }
                 .pointerInput(minDb, maxDb) {
-                    detectTapGestures(
-                        onDoubleTap = { onValueChange(0f) },
-                        onTap = { pos ->
-                            val frac = (1f - pos.y / heightPx).coerceIn(0f, 1f)
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        val now = System.currentTimeMillis()
+                        val isDoubleTap = (now - lastTapTimeMs) < 300L
+                        lastTapTimeMs = now
+
+                        fun applyY(y: Float) {
+                            val h = heightPx.coerceAtLeast(1f)
+                            val frac = (1f - y / h).coerceIn(0f, 1f)
                             val next = minDb + frac * (maxDb - minDb)
-                            onValueChange((next * 2f).roundToInt() / 2f)
+                            currentOnValueChange((next * 2f).roundToInt() / 2f)
                         }
-                    )
-                }
-                .pointerInput(minDb, maxDb) {
-                    detectVerticalDragGestures { change, _ ->
-                        change.consume()
-                        val frac = (1f - change.position.y / heightPx).coerceIn(0f, 1f)
-                        val next = minDb + frac * (maxDb - minDb)
-                        onValueChange((next * 2f).roundToInt() / 2f)
+
+                        if (isDoubleTap) {
+                            currentOnValueChange(0f)
+                        } else {
+                            applyY(down.position.y)
+                        }
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                                ?: event.changes.firstOrNull()
+                                ?: break
+                            if (!change.pressed) {
+                                change.consume()
+                                break
+                            }
+                            change.consume()
+                            applyY(change.position.y)
+                        }
                     }
                 },
             contentAlignment = Alignment.Center

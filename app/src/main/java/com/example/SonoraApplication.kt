@@ -5,7 +5,9 @@ import androidx.media3.common.util.UnstableApi
 import com.example.audio.AudioOutputMonitor
 import com.example.audio.GraphicEqAudioProcessor
 import com.example.audio.PlayerController
+import com.example.audio.SystemAudioEffectEq
 import com.example.data.local.PreferencesStore
+import com.example.data.repository.LanSmbScanner
 import com.example.data.local.SonoraDatabase
 import com.example.data.repository.LibraryRepository
 import com.example.data.repository.SmbRepository
@@ -39,6 +41,7 @@ class SonoraApplication : Application() {
     val database: SonoraDatabase by lazy { SonoraDatabase.build(this) }
     val preferencesStore: PreferencesStore by lazy { PreferencesStore(this) }
     val graphicEqAudioProcessor: GraphicEqAudioProcessor by lazy { GraphicEqAudioProcessor() }
+    val systemAudioEffectEq: SystemAudioEffectEq by lazy { SystemAudioEffectEq() }
     val audioOutputMonitor: AudioOutputMonitor by lazy { AudioOutputMonitor(this) }
 
     val libraryRepository: LibraryRepository by lazy {
@@ -57,6 +60,8 @@ class SonoraApplication : Application() {
             playlistDao = database.playlistDao()
         )
     }
+
+    val lanSmbScanner: LanSmbScanner by lazy { LanSmbScanner(this) }
 
     val youTubeRepository: YouTubeRepository by lazy {
         YouTubeRepository(
@@ -77,6 +82,12 @@ class SonoraApplication : Application() {
         appScope.launch {
             val eq = preferencesStore.eqSettingsFlow.first()
             graphicEqAudioProcessor.updateSettings(eq.enabled, eq.bandsDb, eq.preampDb)
+            systemAudioEffectEq.updateSettings(
+                enabled = eq.enabled,
+                gainsDb = eq.bandsDb,
+                preamp = eq.preampDb,
+                shouldActivate = false
+            )
             audioOutputMonitor.refresh(eq.bitPerfectUsbRequested)
         }
         appScope.launch {

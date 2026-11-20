@@ -285,4 +285,77 @@ class AudioEngineUnitTest {
         assertEquals(24, spectrum.size)
         assertTrue("Spectrum analyzer should detect 1kHz energy", spectrum.maxOrNull()!! > 0.2f)
     }
+
+    @Test
+    fun graphicEq24BitPackedAnd16BitPcmAudiblyModifySignalGain() {
+        // Test 24-bit packed PCM (like AndAmp 24-bit/48kHz intro) with -12 dB cut at 1 kHz vs +12 dB boost
+        val frames = 2048
+        val channels = 2
+        val byteCount24 = frames * channels * 3
+
+        fun run24BitWithGain(gain1kHzDb: Float): Double {
+            val processor = GraphicEqAudioProcessor()
+            processor.updateSettings(
+                enabled = true,
+                gainsDb = listOf(0f, 0f, 0f, 0f, 0f, gain1kHzDb, 0f, 0f, 0f, 0f),
+                preampDb = 0f
+            )
+            val fmt = processor.configure(AudioProcessor.AudioFormat(48_000, channels, C.ENCODING_PCM_24BIT))
+            assertEquals(C.ENCODING_PCM_24BIT, fmt.encoding)
+            processor.flush()
+
+            val inBuf = ByteBuffer.allocateDirect(byteCount24).order(ByteOrder.LITTLE_ENDIAN)
+            for (i in 0 until frames) {
+                val sample = (kotlin.math.sin(2.0 * Math.PI * 1000.0 * i / 48_000.0) * 0.25 * 8388607.0).toInt()
+                repeat(channels) {
+                    inBuf.put((sample and 0xFF).toByte())
+                    inBuf.put(((sample ushr 8) and 0xFF).toByte())
+                    inBuf.put(((sample ushr 16) and 0xFF).toByte())
+                }
+            }
+            inBuf.flip()
+            processor.queueInput(inBuf)
+            val outBuf = processor.output.order(ByteOrder.LITTLE_ENDIAN)
+            assertEquals(byteCount24, outBuf.remaining())
+
+            // Measure second-half steady-state RMS
+            var sumSq = 0.0
+            var count = 0
+            val skipBytes = (frames / 2) * channels * 3
+            outBuf.position(skipBytes)
+            while (outBuf.remaining() >= 3) {
+                val c0 = outBuf.get().toInt() and 0xFF
+                val c1 = outBuf.get().toInt() and 0xFF
+                val c2 = outBuf.get().toInt()
+                val s = ((c2 shl 16) or (c1 shl 8) or c0).toDouble() / 8388608.0
+                sumSq += s * s
+                count++
+            }
+            return kotlin.math.sqrt(sumSq / count.coerceAtLeast(1))
+        }
+
+        val cutRms = run24BitWithGain(-12f)
+        val flatRms = run24BitWithGain(0f)
+        val boostRms = run24BitWithGain(+10f)
+        assertTrue("EQ -12dB cut must audibly reduce 24-bit signal ($cutRms < $flatRms)", cutRms < flatRms * 0.45)
+        assertTrue("EQ +10dB boost must audibly increase 24-bit signal ($boostRms > $flatRms)", boostRms > flatRms * 1.9)
+
+        // Also verify 16-bit PCM responds to Preamp + bypass
+        val proc16 = GraphicEqAudioProcessor()
+        proc16.updateSettings(enabled = true, gainsDb = List(10) { 0f }, preampDb = -6f)
+        val fmt16 = proc16.configure(AudioProcessor.AudioFormat(44_100, 2, C.ENCODING_PCM_16BIT))
+        assertEquals(C.ENCODING_PCM_16BIT, fmt16.encoding)
+        proc16.flush()
+
+        val in16 = ByteBuffer.allocateDirect(512 * 2 * 2).order(ByteOrder.LITTLE_ENDIAN)
+        for (i in 0 until 512) {
+            in16.putShort(16000)
+            in16.putShort(-16000)
+        }
+        in16.flip()
+        proc16.queueInput(in16)
+        val out16 = proc16.output.order(ByteOrder.LITTLE_ENDIAN)
+        val attenuated = abs(out16.getShort().toInt())
+        assertTrue("Preamp -6dB should halve 16-bit amplitude (got $attenuated)", attenuated in 7000..9000)
+    }
 }

@@ -11,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.ui.theme.WinampColors
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
@@ -22,6 +21,7 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTube
 @Composable
 fun YouTubeRemotePlayerBox(
     playlistId: String,
+    initialSeekSeconds: Float = 0f,
     onBindPlayer: (YouTubePlayer) -> Unit,
     onUnbindPlayer: () -> Unit,
     onPlayingChanged: (Boolean) -> Unit,
@@ -30,8 +30,6 @@ fun YouTubeRemotePlayerBox(
     onError: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-
     Box(
         modifier = modifier
             .background(WinampColors.LcdBlack)
@@ -49,7 +47,8 @@ fun YouTubeRemotePlayerBox(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         enableAutomaticInitialization = false
-                        lifecycleOwner.lifecycle.addObserver(this)
+                        // Keep playing continuously when app is minimized or screen turns off
+                        enableBackgroundPlayback(true)
 
                         val options = IFramePlayerOptions.Builder(ctx)
                             .controls(1)
@@ -60,6 +59,9 @@ fun YouTubeRemotePlayerBox(
                         initialize(object : AbstractYouTubePlayerListener() {
                             override fun onReady(youTubePlayer: YouTubePlayer) {
                                 onBindPlayer(youTubePlayer)
+                                if (initialSeekSeconds > 1.5f) {
+                                    youTubePlayer.seekTo(initialSeekSeconds)
+                                }
                             }
 
                             override fun onStateChange(
@@ -98,13 +100,10 @@ fun YouTubeRemotePlayerBox(
                 }
             )
 
-            DisposableEffect(lifecycleOwner, playlistId) {
+            DisposableEffect(playlistId) {
                 onDispose {
                     onUnbindPlayer()
-                    playerViewRef?.let {
-                        lifecycleOwner.lifecycle.removeObserver(it)
-                        it.release()
-                    }
+                    playerViewRef?.release()
                 }
             }
         }

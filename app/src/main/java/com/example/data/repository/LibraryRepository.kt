@@ -95,6 +95,23 @@ class LibraryRepository(
         val introDest = File(sampleDir, introAsset)
         val introUri = Uri.fromFile(introDest).toString()
 
+        val legacySampleNames = listOf(
+            "nocturne_96k_24b.flac",
+            "amber_48k_alac.m4a",
+            "prism_dsd64.dsf"
+        )
+        val cleanupFlag = File(sampleDir, "andamp_only_samples_v1.flag")
+        if (!cleanupFlag.exists()) {
+            legacySampleNames.forEach { legacyName ->
+                val legacyFile = File(sampleDir, legacyName)
+                trackDao.deleteByUri(Uri.fromFile(legacyFile).toString())
+                if (legacyFile.exists()) {
+                    runCatching { legacyFile.delete() }
+                }
+            }
+            cleanupFlag.writeText("v1")
+        }
+
         val introFlag = File(sampleDir, "andamp_droid_intro_voice_v2.flag")
         if (!introDest.exists() || !introFlag.exists()) {
             runCatching {
@@ -106,75 +123,7 @@ class LibraryRepository(
         }
 
         val existingTrackCount = trackDao.getTrackCount()
-        if (existingTrackCount == 0) {
-            val specs = listOf(
-                Triple("andamp_droid_intro.wav", 0, "Droid Whippin' Intro"),
-                Triple("nocturne_96k_24b.flac", 0, "Nocturne en Obsidiana"),
-                Triple("amber_48k_alac.m4a", 2, "Ámbar Analógico"),
-                Triple("prism_dsd64.dsf", 1, "Prisma DSD64")
-            )
-
-            val baseTime = System.currentTimeMillis()
-            val insertedIds = mutableListOf<Long>()
-            specs.forEachIndexed { idx, (assetName, artIdx, fallbackTitle) ->
-                val dest = File(sampleDir, assetName)
-                if (!dest.exists()) {
-                    runCatching {
-                        context.assets.open("samples/$assetName").use { input ->
-                            dest.outputStream().use { output -> input.copyTo(output) }
-                        }
-                    }
-                }
-                if (dest.exists()) {
-                    val uri = Uri.fromFile(dest)
-                    val orderedTime = baseTime + ((specs.size - idx) * 1000L)
-                    val extracted = AudioMetadataExtractor.extractTrackMetadata(
-                        context = context,
-                        uri = uri,
-                        artIndexHint = artIdx,
-                        isReference = true
-                    )?.let {
-                        when {
-                            assetName == introAsset -> it.copy(
-                                title = fallbackTitle,
-                                artist = "AndAmp Droid",
-                                album = "Winamp Droid Intro (7s)",
-                                durationMs = it.durationMs.takeIf { d -> d > 0L } ?: 7_000L,
-                                addedAt = orderedTime
-                            )
-                            assetName.endsWith(".dsf") -> it.copy(
-                                title = fallbackTitle,
-                                artist = "Estudio DSD Directo",
-                                album = "Referencia 1-Bit 2.82 MHz",
-                                addedAt = orderedTime
-                            )
-                            else -> it.copy(addedAt = orderedTime)
-                        }
-                    }
-                    if (extracted != null) {
-                        if (extracted.format == AudioFormatBadge.ALAC) {
-                            AlacUriRegistry.markAlac(extracted.uriString)
-                        }
-                        val id = trackDao.upsertTrack(com.example.data.local.TrackEntity.fromDomain(extracted))
-                        insertedIds.add(id)
-                    }
-                }
-            }
-
-            if (insertedIds.isNotEmpty()) {
-                val playlistId = playlistDao.insertPlaylist(
-                    PlaylistEntity(
-                        name = "Sesión Master Hi-Res",
-                        description = "Intro AndAmp Droid y pistas FLAC 24/96, ALAC 24/48 y DSD64"
-                    )
-                )
-                insertedIds.forEachIndexed { idx, trackId ->
-                    playlistDao.addTrackToPlaylist(
-                        PlaylistTrackCrossRef(playlistId = playlistId, trackId = trackId, position = idx)
-                    )
-                }
-            }
-        } else if (introDest.exists() && trackDao.getByUri(introUri) == null) {
+        if ((existingTrackCount == 0 || trackDao.getByUri(introUri) == null) && introDest.exists()) {
             val extracted = AudioMetadataExtractor.extractTrackMetadata(
                 context = context,
                 uri = Uri.fromFile(introDest),
@@ -187,14 +136,7 @@ class LibraryRepository(
                 durationMs = 7_000L
             )
             if (extracted != null) {
-                val introId = trackDao.upsertTrack(com.example.data.local.TrackEntity.fromDomain(extracted))
-                val existingLists = playlistDao.getPlaylistsOnce()
-                val masterPl = existingLists.firstOrNull { it.playlist.name == "Sesión Master Hi-Res" }
-                if (masterPl != null) {
-                    val newOrder = listOf(introId) + masterPl.tracks.map { it.id }.filter { it != introId }
-                    playlistDao.addTrackToPlaylist(PlaylistTrackCrossRef(masterPl.playlist.id, introId, 0))
-                    playlistDao.reorderPlaylistTracks(masterPl.playlist.id, newOrder)
-                }
+                trackDao.upsertTrack(com.example.data.local.TrackEntity.fromDomain(extracted))
             }
         }
     }

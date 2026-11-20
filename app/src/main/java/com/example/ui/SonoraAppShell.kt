@@ -52,6 +52,7 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val smbServers by viewModel.smbServers.collectAsStateWithLifecycle()
     val smbBrowserState by viewModel.smbBrowserState.collectAsStateWithLifecycle()
+    val lanScanState by viewModel.lanScanState.collectAsStateWithLifecycle()
     val youTubeSearchState by viewModel.youTubeSearchState.collectAsStateWithLifecycle()
     val recentYouTubePlaylists by viewModel.recentYouTubePlaylists.collectAsStateWithLifecycle()
     val appUpdatePrefs by viewModel.appUpdatePrefs.collectAsStateWithLifecycle()
@@ -140,6 +141,7 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
                 isImporting = isImporting,
                 smbServers = smbServers,
                 smbBrowserState = smbBrowserState,
+                lanScanState = lanScanState,
                 youTubeSearchState = youTubeSearchState,
                 recentYouTubePlaylists = recentYouTubePlaylists,
                 appUpdatePrefs = appUpdatePrefs,
@@ -189,6 +191,9 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
                 onLaunchFolderPicker = {
                     folderPickerLauncher.launch(null)
                 },
+                onScanLanSmb = viewModel::scanLanForSmbServers,
+                onConnectDiscoveredSmb = viewModel::connectDiscoveredSmbHost,
+                onSaveAndConnectSmb = viewModel::saveAndConnectSmbServer,
                 onSaveSmbServer = viewModel::saveSmbServer,
                 onDeleteSmbServer = viewModel::deleteSmbServer,
                 onOpenSmbServer = { server -> viewModel.openSmbServer(server) },
@@ -198,7 +203,10 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
                 onImportAllSmbInFolder = viewModel::importAllAudioInCurrentSmbFolder,
                 onYouTubeQueryChange = viewModel::updateYouTubeQuery,
                 onSearchYouTube = { viewModel.searchYouTubePlaylists() },
-                onPlayYouTubePlaylist = viewModel::playYouTubePlaylist,
+                onPlayYouTubePlaylist = { pl ->
+                    ensureNotificationPermissionIfNeeded()
+                    viewModel.playYouTubePlaylist(pl)
+                },
                 onDeleteRecentYouTube = viewModel::deleteRecentYouTubePlaylist,
                 onExitYouTube = viewModel::exitYouTubeMode,
                 onBindYouTubePlayer = viewModel::bindYouTubePlayer,

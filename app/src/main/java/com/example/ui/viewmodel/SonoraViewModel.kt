@@ -1,23 +1,30 @@
 package com.example.ui.viewmodel
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
+import com.example.BuildConfig
 import com.example.audio.AudioOutputInfo
 import com.example.audio.AudioOutputMonitor
 import com.example.audio.GraphicEqAudioProcessor
+import com.example.audio.PlaybackService
 import com.example.audio.PlaybackUiState
 import com.example.audio.PlayerController
-import com.example.BuildConfig
+import com.example.audio.SystemAudioEffectEq
+import com.example.audio.YouTubeBgBridge
+import com.example.audio.YouTubeBgCommand
 import com.example.data.local.AppUpdatePrefs
 import com.example.data.local.EqSettingsState
 import com.example.data.local.PreferencesStore
+import com.example.data.repository.LanSmbScanner
 import com.example.data.repository.LibraryRepository
 import com.example.data.repository.SmbRepository
 import com.example.data.repository.YouTubeRepository
 import com.example.domain.model.AudioFormatBadge
+import com.example.domain.model.DiscoveredSmbHost
 import com.example.domain.model.EqPreset
 import com.example.domain.model.PlaybackSourceMode
 import com.example.domain.model.Playlist
@@ -31,6 +38,8 @@ import com.example.update.AppUpdateManager
 import com.example.update.AppUpdateUiState
 import com.example.update.ReleaseUpdateInfo
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -61,6 +70,13 @@ data class SmbBrowserUiState(
     val errorMessage: String? = null
 )
 
+data class LanScanUiState(
+    val isScanning: Boolean = false,
+    val discoveredHosts: List<DiscoveredSmbHost> = emptyList(),
+    val hasScannedOnce: Boolean = false,
+    val errorMessage: String? = null
+)
+
 data class YouTubeSearchUiState(
     val query: String = "",
     val results: List<YouTubePlaylistSummary> = emptyList(),
@@ -70,12 +86,15 @@ data class YouTubeSearchUiState(
 
 @UnstableApi
 class SonoraViewModel(
+    private val appContext: Context,
     private val repository: LibraryRepository,
     private val smbRepository: SmbRepository,
+    private val lanSmbScanner: LanSmbScanner,
     private val youTubeRepository: YouTubeRepository,
     private val preferencesStore: PreferencesStore,
     private val playerController: PlayerController,
     private val eqProcessor: GraphicEqAudioProcessor,
+    private val systemAudioEffectEq: SystemAudioEffectEq,
     private val outputMonitor: AudioOutputMonitor,
     private val appUpdateManager: AppUpdateManager
 ) : ViewModel() {
@@ -104,6 +123,9 @@ class SonoraViewModel(
     private val _smbBrowserState = MutableStateFlow(SmbBrowserUiState())
     val smbBrowserState: StateFlow<SmbBrowserUiState> = _smbBrowserState.asStateFlow()
 
+    private val _lanScanState = MutableStateFlow(LanScanUiState())
+    val lanScanState: StateFlow<LanScanUiState> = _lanScanState.asStateFlow()
+
     private val _youTubeSearchState = MutableStateFlow(YouTubeSearchUiState())
     val youTubeSearchState: StateFlow<YouTubeSearchUiState> = _youTubeSearchState.asStateFlow()
 
@@ -111,6 +133,9 @@ class SonoraViewModel(
     val youTubePlaybackState: StateFlow<YouTubePlaybackState> = _youTubePlaybackState.asStateFlow()
 
     private var activeYouTubePlayer: YouTubePlayer? = null
+    private var lanScanJob: Job? = null
+    private var eqSaveJob: Job? = null
+    private var hasUserModifiedEq = false
 
     val allTracks: StateFlow<List<Track>> = repository.allTracksFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -161,8 +186,8 @@ class SonoraViewModel(
     val customEqPresets: StateFlow<List<EqPreset>> = repository.customEqPresetsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val eqSettings: StateFlow<EqSettingsState> = preferencesStore.eqSettingsFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), EqSettingsState())
+    private val _eqSettings = MutableStateFlow(EqSettingsState())
+    val eqSettings: StateFlow<EqSettingsState> = _eqSettings.asStateFlow()
 
     private val _appUpdateState = MutableStateFlow<AppUpdateUiState>(AppUpdateUiState.Idle)
     val appUpdateState: StateFlow<AppUpdateUiState> = _appUpdateState.asStateFlow()
@@ -180,11 +205,36 @@ class SonoraViewModel(
     val outputInfo: StateFlow<AudioOutputInfo> = outputMonitor.outputInfo
 
     init {
+        viewModelScope.launch {
+            val savedEq = preferencesStore.eqSettingsFlow.first()
+            if (!hasUserModifiedEq) {
+                _eqSettings.value = savedEq
+                pushEqToAudioEngines(savedEq)
+            }
+        }
+
         allTracks
             .onEach { tracks ->
                 playerController.syncTrackMetadataUpdates(tracks)
                 if (!autoIntroAttempted && tracks.isNotEmpty()) {
                     maybePlayFirstLaunchDroidIntro(tracks)
+                }
+            }
+            .launchIn(viewModelScope)
+
+        YouTubeBgBridge.commands
+            .onEach { cmd ->
+                when (cmd) {
+                    YouTubeBgCommand.TOGGLE_PLAY_PAUSE -> {
+                        if (_youTubePlaybackState.value.isPlaying) {
+                            activeYouTubePlayer?.pause()
+                        } else {
+                            activeYouTubePlayer?.play()
+                        }
+                    }
+                    YouTubeBgCommand.NEXT -> activeYouTubePlayer?.nextVideo()
+                    YouTubeBgCommand.PREVIOUS -> activeYouTubePlayer?.previousVideo()
+                    YouTubeBgCommand.STOP -> stopPlayback()
                 }
             }
             .launchIn(viewModelScope)
@@ -284,6 +334,7 @@ class SonoraViewModel(
             activeYouTubePlayer?.pause()
             activeYouTubePlayer?.seekTo(0f)
             _youTubePlaybackState.update { it.copy(isPlaying = false, currentSeconds = 0f) }
+            PlaybackService.stopYouTubeBackground(appContext)
         } else {
             playerController.stopPlayback()
         }
@@ -372,8 +423,70 @@ class SonoraViewModel(
         }
     }
 
-    // --- Samba / NAS Server Profiles & Browser ---
-    fun saveSmbServer(profile: SmbServerProfile) {
+    // --- Samba / NAS LAN Discovery, Profiles & Browser ---
+    fun scanLanForSmbServers() {
+        lanScanJob?.cancel()
+        lanScanJob = viewModelScope.launch {
+            _lanScanState.update {
+                it.copy(isScanning = true, errorMessage = null)
+            }
+            runCatching {
+                lanSmbScanner.scanLanHosts { incremental ->
+                    _lanScanState.update { it.copy(discoveredHosts = incremental) }
+                }
+            }.fold(
+                onSuccess = { hosts ->
+                    _lanScanState.value = LanScanUiState(
+                        isScanning = false,
+                        discoveredHosts = hosts,
+                        hasScannedOnce = true,
+                        errorMessage = if (hosts.isEmpty()) {
+                            "No se detectaron equipos SMB en esta red Wi-Fi"
+                        } else null
+                    )
+                },
+                onFailure = { err ->
+                    _lanScanState.update {
+                        it.copy(
+                            isScanning = false,
+                            hasScannedOnce = true,
+                            errorMessage = err.localizedMessage ?: "Error al escanear la red local"
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun connectDiscoveredSmbHost(
+        host: DiscoveredSmbHost,
+        defaultShare: String = "",
+        isGuest: Boolean = true,
+        username: String = "",
+        password: String = ""
+    ) {
+        viewModelScope.launch {
+            val existing = smbServers.value.firstOrNull {
+                it.host.equals(host.host, ignoreCase = true) && it.port == host.port
+            }
+            val profile = SmbServerProfile(
+                id = existing?.id ?: 0L,
+                alias = existing?.alias ?: host.displayName.ifBlank { host.host },
+                host = host.host,
+                port = host.port,
+                defaultShare = defaultShare.trim().ifBlank { existing?.defaultShare.orEmpty() },
+                username = if (isGuest) "" else username.trim(),
+                password = if (isGuest) "" else password,
+                isGuest = isGuest
+            )
+            val savedId = smbRepository.saveServer(profile)
+            val effectiveId = if (savedId > 0L) savedId else profile.id
+            val resolved = smbRepository.getServerById(effectiveId) ?: profile.copy(id = effectiveId)
+            loadSmbDirectory(resolved, resolved.defaultShare, "")
+        }
+    }
+
+    fun saveAndConnectSmbServer(profile: SmbServerProfile, connectImmediately: Boolean = true) {
         if (profile.host.isBlank()) return
         viewModelScope.launch {
             val cleaned = profile.copy(
@@ -381,9 +494,18 @@ class SonoraViewModel(
                 host = profile.host.trim(),
                 defaultShare = profile.defaultShare.trim()
             )
-            smbRepository.saveServer(cleaned)
-            _statusMessage.value = "Servidor NAS \"${cleaned.alias}\" guardado"
+            val savedId = smbRepository.saveServer(cleaned)
+            val effectiveId = if (savedId > 0L) savedId else cleaned.id
+            val saved = smbRepository.getServerById(effectiveId) ?: cleaned.copy(id = effectiveId)
+            _statusMessage.value = "Servidor NAS \"${saved.alias}\" guardado"
+            if (connectImmediately) {
+                loadSmbDirectory(saved, saved.defaultShare, "")
+            }
         }
+    }
+
+    fun saveSmbServer(profile: SmbServerProfile) {
+        saveAndConnectSmbServer(profile, connectImmediately = false)
     }
 
     fun deleteSmbServer(serverId: Long) {
@@ -419,7 +541,7 @@ class SonoraViewModel(
                     playTrackFromDisplayed(track)
                 }
                 _statusMessage.value = if (added > 0) {
-                    "Pista NAS añadida y lista para reproducir"
+                    "Pista NAS añadida y reproduciendo"
                 } else {
                     "Reproduciendo pista desde NAS"
                 }
@@ -492,7 +614,7 @@ class SonoraViewModel(
         }
     }
 
-    // --- YouTube Remote Playlist Search & Playback ---
+    // --- YouTube Remote Playlist Search & Background Playback ---
     fun updateYouTubeQuery(query: String) {
         _youTubeSearchState.update { it.copy(query = query) }
     }
@@ -534,6 +656,16 @@ class SonoraViewModel(
             currentSeconds = 0f,
             durationSeconds = 0f
         )
+        systemAudioEffectEq.bindSession(
+            audioSessionId = 0,
+            shouldActivate = _eqSettings.value.enabled
+        )
+        PlaybackService.syncYouTubeBackground(
+            context = appContext,
+            title = summary.title,
+            artist = summary.channelTitle,
+            isPlaying = true
+        )
         viewModelScope.launch {
             youTubeRepository.saveRecentPlaylist(summary)
         }
@@ -551,6 +683,8 @@ class SonoraViewModel(
         activeYouTubePlayer = null
         _playbackSourceMode.value = PlaybackSourceMode.MEDIA3_AUDIO
         _youTubePlaybackState.value = YouTubePlaybackState()
+        PlaybackService.stopYouTubeBackground(appContext)
+        pushEqToAudioEngines(_eqSettings.value)
     }
 
     fun bindYouTubePlayer(player: YouTubePlayer) {
@@ -563,6 +697,15 @@ class SonoraViewModel(
 
     fun onYouTubeStateChanged(isPlaying: Boolean) {
         _youTubePlaybackState.update { it.copy(isPlaying = isPlaying, errorMessage = null) }
+        val activePlaylist = _youTubePlaybackState.value.activePlaylist
+        if (_playbackSourceMode.value == PlaybackSourceMode.YOUTUBE_REMOTE && activePlaylist != null) {
+            PlaybackService.syncYouTubeBackground(
+                context = appContext,
+                title = activePlaylist.title,
+                artist = activePlaylist.channelTitle,
+                isPlaying = isPlaying
+            )
+        }
     }
 
     fun onYouTubeProgress(currentSec: Float, durationSec: Float?) {
@@ -588,6 +731,9 @@ class SonoraViewModel(
             activeYouTubePlayer?.pause()
             activeYouTubePlayer = null
             _playbackSourceMode.value = PlaybackSourceMode.MEDIA3_AUDIO
+            _youTubePlaybackState.value = YouTubePlaybackState()
+            PlaybackService.stopYouTubeBackground(appContext)
+            pushEqToAudioEngines(_eqSettings.value)
         }
     }
 
@@ -642,12 +788,12 @@ class SonoraViewModel(
 
     // --- 10-Band Equalizer ---
     fun setEqEnabled(enabled: Boolean) {
-        val updated = eqSettings.value.copy(enabled = enabled)
+        val updated = _eqSettings.value.copy(enabled = enabled)
         applyAndSaveEq(updated)
     }
 
     fun toggleEqAuto() {
-        val current = eqSettings.value
+        val current = _eqSettings.value
         val nextAuto = !current.autoGain
         val maxBoost = current.bandsDb.maxOrNull()?.coerceAtLeast(0f) ?: 0f
         val adjustedPreamp = if (nextAuto && maxBoost > 0f) (-maxBoost * 0.7f).coerceIn(-12f, 0f) else current.preampDb
@@ -656,7 +802,7 @@ class SonoraViewModel(
 
     fun updateEqBand(bandIndex: Int, gainDb: Float) {
         if (bandIndex !in 0..9) return
-        val current = eqSettings.value
+        val current = _eqSettings.value
         val newBands = current.bandsDb.toMutableList().apply {
             this[bandIndex] = gainDb
         }
@@ -668,12 +814,12 @@ class SonoraViewModel(
     }
 
     fun updatePreamp(preampDb: Float) {
-        val updated = eqSettings.value.copy(preampDb = preampDb, autoGain = false, activePresetId = 0L)
+        val updated = _eqSettings.value.copy(preampDb = preampDb, autoGain = false, activePresetId = 0L)
         applyAndSaveEq(updated)
     }
 
     fun applyEqPreset(preset: EqPreset) {
-        val updated = eqSettings.value.copy(
+        val updated = _eqSettings.value.copy(
             enabled = true,
             bandsDb = preset.bandsDb,
             preampDb = preset.preampDb,
@@ -683,7 +829,7 @@ class SonoraViewModel(
     }
 
     fun resetEqFlat() {
-        val updated = eqSettings.value.copy(
+        val updated = _eqSettings.value.copy(
             bandsDb = List(10) { 0f },
             preampDb = 0f,
             activePresetId = -1L
@@ -693,7 +839,7 @@ class SonoraViewModel(
 
     fun saveCustomEqPreset(name: String) {
         if (name.isBlank()) return
-        val current = eqSettings.value
+        val current = _eqSettings.value
         viewModelScope.launch {
             val newId = repository.saveCustomEqPreset(name, current.bandsDb, current.preampDb)
             applyAndSaveEq(current.copy(activePresetId = newId))
@@ -708,7 +854,7 @@ class SonoraViewModel(
     }
 
     fun setBitPerfectUsbRequested(enabled: Boolean) {
-        val updated = eqSettings.value.copy(bitPerfectUsbRequested = enabled)
+        val updated = _eqSettings.value.copy(bitPerfectUsbRequested = enabled)
         applyAndSaveEq(updated)
         outputMonitor.refresh(enabled)
     }
@@ -834,31 +980,54 @@ class SonoraViewModel(
     }
 
     private fun applyAndSaveEq(state: EqSettingsState) {
-        eqProcessor.updateSettings(state.enabled, state.bandsDb, state.preampDb)
-        viewModelScope.launch {
+        hasUserModifiedEq = true
+        _eqSettings.value = state
+        pushEqToAudioEngines(state)
+        eqSaveJob?.cancel()
+        eqSaveJob = viewModelScope.launch {
+            delay(200L)
             preferencesStore.saveEqSettings(state)
         }
     }
 
+    private fun pushEqToAudioEngines(state: EqSettingsState) {
+        eqProcessor.updateSettings(state.enabled, state.bandsDb, state.preampDb)
+        val shouldActivateSystemEq =
+            _playbackSourceMode.value == PlaybackSourceMode.YOUTUBE_REMOTE ||
+                !eqProcessor.isHandlingActiveStream
+        systemAudioEffectEq.updateSettings(
+            enabled = state.enabled,
+            gainsDb = state.bandsDb,
+            preamp = state.preampDb,
+            shouldActivate = shouldActivateSystemEq
+        )
+    }
+
     class Factory(
+        private val appContext: Context,
         private val repository: LibraryRepository,
         private val smbRepository: SmbRepository,
+        private val lanSmbScanner: LanSmbScanner,
         private val youTubeRepository: YouTubeRepository,
         private val preferencesStore: PreferencesStore,
         private val playerController: PlayerController,
         private val eqProcessor: GraphicEqAudioProcessor,
+        private val systemAudioEffectEq: SystemAudioEffectEq,
         private val outputMonitor: AudioOutputMonitor,
         private val appUpdateManager: AppUpdateManager
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return SonoraViewModel(
+                appContext,
                 repository,
                 smbRepository,
+                lanSmbScanner,
                 youTubeRepository,
                 preferencesStore,
                 playerController,
                 eqProcessor,
+                systemAudioEffectEq,
                 outputMonitor,
                 appUpdateManager
             ) as T

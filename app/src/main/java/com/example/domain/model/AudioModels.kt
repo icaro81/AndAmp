@@ -144,6 +144,13 @@ enum class PlaybackSourceMode {
     YOUTUBE_REMOTE
 }
 
+data class DiscoveredSmbHost(
+    val host: String,
+    val displayName: String,
+    val port: Int = 445,
+    val source: String = "LAN"
+)
+
 data class YouTubePlaybackState(
     val activePlaylist: YouTubePlaylistSummary? = null,
     val isPlaying: Boolean = false,

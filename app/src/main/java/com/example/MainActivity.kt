@@ -17,12 +17,15 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: SonoraViewModel by viewModels {
         SonoraViewModel.Factory(
+            appContext = applicationContext,
             repository = sonoraApp.libraryRepository,
             smbRepository = sonoraApp.smbRepository,
+            lanSmbScanner = sonoraApp.lanSmbScanner,
             youTubeRepository = sonoraApp.youTubeRepository,
             preferencesStore = sonoraApp.preferencesStore,
             playerController = sonoraApp.playerController,
             eqProcessor = sonoraApp.graphicEqAudioProcessor,
+            systemAudioEffectEq = sonoraApp.systemAudioEffectEq,
             outputMonitor = sonoraApp.audioOutputMonitor,
             appUpdateManager = sonoraApp.appUpdateManager
         )

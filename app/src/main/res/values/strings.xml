@@ -28,4 +28,8 @@
     <string name="tab_player">1. REPRODUCTOR</string>
     <string name="tab_equalizer">2. ECUALIZADOR</string>
     <string name="tab_playlist">3. LISTA</string>
+
+    <!-- Background Notification -->
+    <string name="notif_channel_playback">Reproducción AndAmp</string>
+    <string name="notif_channel_playback_desc">Controles multimedia de AndAmp en segundo plano</string>
 </resources>

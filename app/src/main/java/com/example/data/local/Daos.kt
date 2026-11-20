@@ -29,6 +29,9 @@ interface TrackDao {
 
     @Query("DELETE FROM tracks WHERE id = :trackId")
     suspend fun deleteTrack(trackId: Long)
+
+    @Query("DELETE FROM tracks WHERE uriString = :uri")
+    suspend fun deleteByUri(uri: String)
 }
 
 @Dao

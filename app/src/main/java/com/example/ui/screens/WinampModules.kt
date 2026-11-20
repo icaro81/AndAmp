@@ -81,7 +81,9 @@ data class RackSizing(
     val playlistMaxHeight: Dp,
     val transportButtonHeight: Dp,
     val footerButtonHeight: Dp,
-    val timerFontSize: TextUnit
+    val timerFontSize: TextUnit,
+    val youtubePortraitMaxHeight: Dp = 230.dp,
+    val youtubeLandscapeMaxHeight: Dp = 200.dp
 )
 
 @Composable
@@ -192,21 +194,29 @@ fun PlayerDeckModule(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    YouTubeRemotePlayerBox(
-                        playlistId = activeYtPlaylist.playlistId,
-                        onBindPlayer = onBindYouTubePlayer,
-                        onUnbindPlayer = onUnbindYouTubePlayer,
-                        onPlayingChanged = onYouTubeStateChanged,
-                        onProgress = onYouTubeProgress,
-                        onVideoChanged = onYouTubeVideoChanged,
-                        onError = onYouTubeError,
-                        modifier = Modifier
-                            .weight(0.54f)
-                            .height(145.dp)
-                    )
+                    androidx.compose.foundation.layout.BoxWithConstraints(
+                        modifier = Modifier.weight(0.54f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val targetH = (maxWidth * 9f / 16f).coerceIn(110.dp, sizing.youtubeLandscapeMaxHeight)
+                        val targetW = (targetH * 16f / 9f).coerceAtMost(maxWidth)
+                        YouTubeRemotePlayerBox(
+                            playlistId = activeYtPlaylist.playlistId,
+                            initialSeekSeconds = youTubeState.currentSeconds,
+                            onBindPlayer = onBindYouTubePlayer,
+                            onUnbindPlayer = onUnbindYouTubePlayer,
+                            onPlayingChanged = onYouTubeStateChanged,
+                            onProgress = onYouTubeProgress,
+                            onVideoChanged = onYouTubeVideoChanged,
+                            onError = onYouTubeError,
+                            modifier = Modifier
+                                .width(targetW)
+                                .height(targetH)
+                        )
+                    }
                     Column(
                         modifier = Modifier.weight(0.46f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         WinampLcdBox(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -257,18 +267,26 @@ fun PlayerDeckModule(
                     }
                 }
             } else {
-                YouTubeRemotePlayerBox(
-                    playlistId = activeYtPlaylist.playlistId,
-                    onBindPlayer = onBindYouTubePlayer,
-                    onUnbindPlayer = onUnbindYouTubePlayer,
-                    onPlayingChanged = onYouTubeStateChanged,
-                    onProgress = onYouTubeProgress,
-                    onVideoChanged = onYouTubeVideoChanged,
-                    onError = onYouTubeError,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(168.dp)
-                )
+                androidx.compose.foundation.layout.BoxWithConstraints(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val targetH = (maxWidth * 9f / 16f).coerceIn(135.dp, sizing.youtubePortraitMaxHeight)
+                    val targetW = (targetH * 16f / 9f).coerceAtMost(maxWidth)
+                    YouTubeRemotePlayerBox(
+                        playlistId = activeYtPlaylist.playlistId,
+                        initialSeekSeconds = youTubeState.currentSeconds,
+                        onBindPlayer = onBindYouTubePlayer,
+                        onUnbindPlayer = onUnbindYouTubePlayer,
+                        onPlayingChanged = onYouTubeStateChanged,
+                        onProgress = onYouTubeProgress,
+                        onVideoChanged = onYouTubeVideoChanged,
+                        onError = onYouTubeError,
+                        modifier = Modifier
+                            .width(targetW)
+                            .height(targetH)
+                    )
+                }
                 Spacer(Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),

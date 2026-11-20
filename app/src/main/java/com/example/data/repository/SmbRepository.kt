@@ -44,7 +44,9 @@ class SmbRepository(
     )
 
     private val commonShareProbes = listOf(
-        "Music", "music", "Media", "media", "Audio", "audio", "Public", "public", "Shared", "NAS", "home"
+        "Music", "music", "Musica", "Música", "Media", "media",
+        "Audio", "audio", "Public", "public", "Shared", "Share", "share",
+        "NAS", "home", "Downloads", "Volume_1", "usb1"
     )
 
     val allServersFlow: Flow<List<SmbServerProfile>> = smbServerDao.observeAllServers().map { list ->
