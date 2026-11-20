@@ -24,10 +24,14 @@
     <string name="btn_list_opts">LIST OPTS</string>
     <string name="btn_presets">PRESETS</string>
 
-    <!-- Adaptive Landscape Tabs -->
+    <!-- Adaptive Landscape & Car Mode -->
     <string name="tab_player">1. REPRODUCTOR</string>
     <string name="tab_equalizer">2. ECUALIZADOR</string>
     <string name="tab_playlist">3. LISTA</string>
+    <string name="car_mode_label">COCHE</string>
+    <string name="car_tab_player">Reproductor</string>
+    <string name="car_tab_equalizer">Ecualizador</string>
+    <string name="car_tab_playlist">Lista</string>
 
     <!-- Background Notification -->
     <string name="notif_channel_playback">Reproducción AndAmp</string>

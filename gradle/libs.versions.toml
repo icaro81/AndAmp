@@ -46,6 +46,7 @@ smbj = "0.15.0"
 jcifsNg = "2.1.10"
 slf4jAndroid = "1.7.36"
 androidYoutubePlayer = "13.1.0"
+carApp = "1.7.0"
 
 
 [libraries]
@@ -109,6 +110,9 @@ smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbj" }
 jcifs-ng = { group = "eu.agno3.jcifs", name = "jcifs-ng", version.ref = "jcifsNg" }
 slf4j-android = { group = "org.slf4j", name = "slf4j-android", version.ref = "slf4jAndroid" }
 android-youtube-player = { group = "com.pierfrancescosoffritti.androidyoutubeplayer", name = "core", version.ref = "androidYoutubePlayer" }
+androidx-car-app = { group = "androidx.car.app", name = "app", version.ref = "carApp" }
+androidx-car-app-projected = { group = "androidx.car.app", name = "app-projected", version.ref = "carApp" }
+androidx-car-app-testing = { group = "androidx.car.app", name = "app-testing", version.ref = "carApp" }
 
 
 [plugins]

@@ -206,18 +206,22 @@ class SonoraViewModel(
 
     private var autoIntroAttempted = false
 
+    val carModeLandscape: StateFlow<Boolean> = preferencesStore.carModeLandscapeFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     val playbackState: StateFlow<PlaybackUiState> = playerController.playbackState
     val spectrumBars: StateFlow<FloatArray> = playerController.spectrumFlow
     val outputInfo: StateFlow<AudioOutputInfo> = outputMonitor.outputInfo
 
     init {
-        viewModelScope.launch {
-            val savedEq = preferencesStore.eqSettingsFlow.first()
-            if (!hasUserModifiedEq) {
-                _eqSettings.value = savedEq
-                pushEqToAudioEngines(savedEq)
+        preferencesStore.eqSettingsFlow
+            .onEach { savedEq ->
+                if (eqSaveJob?.isActive != true) {
+                    _eqSettings.value = savedEq
+                    pushEqToAudioEngines(savedEq)
+                }
             }
-        }
+            .launchIn(viewModelScope)
 
         allTracks
             .onEach { tracks ->
@@ -994,6 +998,12 @@ class SonoraViewModel(
         val updated = _eqSettings.value.copy(bitPerfectUsbRequested = enabled)
         applyAndSaveEq(updated)
         outputMonitor.refresh(enabled)
+    }
+
+    fun setCarModeLandscape(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesStore.setCarModeLandscape(enabled)
+        }
     }
 
     // --- Internal GitHub Releases OTA Updater ---

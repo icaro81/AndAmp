@@ -64,6 +64,7 @@ class PreferencesStore(context: Context) {
         val HAS_PLAYED_DROID_INTRO = booleanPreferencesKey("has_played_droid_intro")
         val GITHUB_UPDATE_REPO = stringPreferencesKey("github_update_repo")
         val SKIPPED_UPDATE_VERSION = stringPreferencesKey("skipped_update_version")
+        val CAR_MODE_LANDSCAPE = booleanPreferencesKey("car_mode_landscape")
     }
 
     val eqSettingsFlow: Flow<EqSettingsState> = dataStore.data.map { prefs ->
@@ -93,6 +94,10 @@ class PreferencesStore(context: Context) {
         )
     }
 
+    val carModeLandscapeFlow: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[Keys.CAR_MODE_LANDSCAPE] ?: false
+    }
+
     suspend fun saveEqSettings(state: EqSettingsState) {
         dataStore.edit { prefs ->
             prefs[Keys.EQ_ENABLED] = state.enabled
@@ -120,6 +125,12 @@ class PreferencesStore(context: Context) {
     suspend fun setSkippedUpdateVersion(version: String) {
         dataStore.edit { prefs ->
             prefs[Keys.SKIPPED_UPDATE_VERSION] = version.trim()
+        }
+    }
+
+    suspend fun setCarModeLandscape(enabled: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[Keys.CAR_MODE_LANDSCAPE] = enabled
         }
     }
 }

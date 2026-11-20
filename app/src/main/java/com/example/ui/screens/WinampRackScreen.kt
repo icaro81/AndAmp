@@ -17,6 +17,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material3.Icon
@@ -149,6 +150,8 @@ fun WinampRackScreen(
     showUpdateDialog: Boolean = false,
     isLandscapeFullscreen: Boolean = false,
     onSetLandscapeFullscreen: (Boolean) -> Unit = {},
+    isCarModeLandscape: Boolean = false,
+    onToggleCarModeLandscape: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -198,6 +201,7 @@ fun WinampRackScreen(
                 else -> 6.dp
             },
             spectrumHeight = when {
+                isLandscape && isCarModeLandscape -> (availableLandscapeHeight * 0.25f).coerceIn(48.dp, 136.dp)
                 isLandscape -> (availableLandscapeHeight * 0.22f).coerceIn(36.dp, 120.dp)
                 else -> (maxHeight * 0.052f).coerceIn(32.dp, 50.dp)
             },
@@ -207,9 +211,18 @@ fun WinampRackScreen(
             },
             playlistMinHeight = (maxHeight * 0.25f).coerceIn(170.dp, 260.dp),
             playlistMaxHeight = (maxHeight * 0.34f).coerceIn(220.dp, 380.dp),
-            transportButtonHeight = if (isLandscape || maxWidth >= 700.dp) 44.dp else 38.dp,
-            footerButtonHeight = if (isLandscape || maxWidth >= 700.dp) 42.dp else 38.dp,
+            transportButtonHeight = when {
+                isLandscape && isCarModeLandscape -> 56.dp
+                isLandscape || maxWidth >= 700.dp -> 44.dp
+                else -> 38.dp
+            },
+            footerButtonHeight = when {
+                isLandscape && isCarModeLandscape -> 48.dp
+                isLandscape || maxWidth >= 700.dp -> 42.dp
+                else -> 38.dp
+            },
             timerFontSize = when {
+                isLandscape && isCarModeLandscape -> 28.sp
                 isLandscape && maxWidth >= 820.dp -> 24.sp
                 isLandscape -> 20.sp
                 maxWidth >= 700.dp -> 24.sp
@@ -217,7 +230,8 @@ fun WinampRackScreen(
                 else -> 21.sp
             },
             youtubePortraitMaxHeight = (maxHeight * 0.31f).coerceIn(165.dp, 320.dp),
-            youtubeLandscapeMaxHeight = (availableLandscapeHeight - 62.dp).coerceIn(135.dp, 460.dp)
+            youtubeLandscapeMaxHeight = (availableLandscapeHeight - 62.dp).coerceIn(135.dp, 460.dp),
+            isCarMode = isLandscape && isCarModeLandscape
         )
 
         val currentPosMs = if (playbackSourceMode == PlaybackSourceMode.YOUTUBE_REMOTE) {
@@ -267,6 +281,26 @@ fun WinampRackScreen(
                     }
 
                     WinampMetallicButton(
+                        onClick = onToggleCarModeLandscape,
+                        testTag = "landscape_car_mode_toggle",
+                        contentDesc = if (isCarModeLandscape) {
+                            "Desactivar modo coche"
+                        } else {
+                            "Activar modo coche horizontal"
+                        },
+                        showLed = true,
+                        ledActive = isCarModeLandscape,
+                        minHeight = if (isCarModeLandscape) 44.dp else 36.dp
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.DirectionsCar,
+                            contentDescription = null,
+                            tint = if (isCarModeLandscape) WinampColors.LcdGreen else WinampColors.EqGoldBright,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    WinampMetallicButton(
                         onClick = { onSetLandscapeFullscreen(!isLandscapeFullscreen) },
                         testTag = "landscape_fullscreen_toggle",
                         contentDesc = if (isLandscapeFullscreen) {
@@ -276,7 +310,7 @@ fun WinampRackScreen(
                         },
                         showLed = true,
                         ledActive = isLandscapeFullscreen,
-                        minHeight = 36.dp
+                        minHeight = if (isCarModeLandscape) 44.dp else 36.dp
                     ) {
                         Icon(
                             imageVector = if (isLandscapeFullscreen) {
@@ -328,6 +362,7 @@ fun WinampRackScreen(
                                 onFocusPlaylist = {
                                     coroutineScope.launch { pagerState.animateScrollToPage(2) }
                                 },
+                                onToggleFavorite = { activeTrack?.let(onToggleFavorite) },
                                 onExitYouTube = onExitYouTube,
                                 onBindYouTubePlayer = onBindYouTubePlayer,
                                 onUnbindYouTubePlayer = onUnbindYouTubePlayer,
@@ -413,6 +448,7 @@ fun WinampRackScreen(
                         onCycleRepeat = onCycleRepeat,
                         onToggleEq = { onEqEnabledChange(!eqSettings.enabled) },
                         onFocusPlaylist = { showListOptsSheet = true },
+                        onToggleFavorite = { activeTrack?.let(onToggleFavorite) },
                         onExitYouTube = onExitYouTube,
                         onBindYouTubePlayer = onBindYouTubePlayer,
                         onUnbindYouTubePlayer = onUnbindYouTubePlayer,
@@ -485,6 +521,7 @@ fun WinampRackScreen(
                     onCycleRepeat = onCycleRepeat,
                     onToggleEq = { onEqEnabledChange(!eqSettings.enabled) },
                     onFocusPlaylist = { showListOptsSheet = true },
+                    onToggleFavorite = { activeTrack?.let(onToggleFavorite) },
                     onExitYouTube = onExitYouTube,
                     onBindYouTubePlayer = onBindYouTubePlayer,
                     onUnbindYouTubePlayer = onUnbindYouTubePlayer,

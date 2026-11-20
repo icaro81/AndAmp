@@ -72,12 +72,13 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
     val appUpdatePrefs by viewModel.appUpdatePrefs.collectAsStateWithLifecycle()
     val appUpdateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
     val showUpdateDialog by viewModel.showUpdateDialog.collectAsStateWithLifecycle()
+    val carModeLandscape by viewModel.carModeLandscape.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val view = LocalView.current
     val activity = remember(context) { context.findActivity() }
     var askedNotificationPermission by remember { mutableStateOf(false) }
-    var isLandscapeFullscreen by remember { mutableStateOf(false) }
+    var isLandscapeFullscreen by remember(carModeLandscape) { mutableStateOf(carModeLandscape) }
 
     LaunchedEffect(isLandscapeFullscreen, activity) {
         val window = activity?.window ?: return@LaunchedEffect
@@ -264,6 +265,12 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
                 showUpdateDialog = showUpdateDialog,
                 isLandscapeFullscreen = isLandscapeFullscreen,
                 onSetLandscapeFullscreen = { isLandscapeFullscreen = it },
+                isCarModeLandscape = carModeLandscape,
+                onToggleCarModeLandscape = {
+                    val next = !carModeLandscape
+                    viewModel.setCarModeLandscape(next)
+                    isLandscapeFullscreen = next
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)

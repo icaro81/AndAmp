@@ -7,4 +7,9 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="andamp_car_primary">#FF0E1117</color>
+    <color name="andamp_car_primary_dark">#FF07090D</color>
+    <color name="andamp_car_secondary">#FFD6B44B</color>
+    <color name="andamp_car_secondary_dark">#FF9E802C</color>
+    <color name="andamp_car_lcd_green">#FF25FF6A</color>
 </resources>

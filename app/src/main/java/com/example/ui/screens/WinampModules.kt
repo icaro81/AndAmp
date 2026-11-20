@@ -93,7 +93,8 @@ data class RackSizing(
     val footerButtonHeight: Dp,
     val timerFontSize: TextUnit,
     val youtubePortraitMaxHeight: Dp = 230.dp,
-    val youtubeLandscapeMaxHeight: Dp = 200.dp
+    val youtubeLandscapeMaxHeight: Dp = 200.dp,
+    val isCarMode: Boolean = false
 )
 
 @Composable
@@ -118,6 +119,7 @@ fun PlayerDeckModule(
     onCycleRepeat: () -> Unit,
     onToggleEq: () -> Unit,
     onFocusPlaylist: () -> Unit,
+    onToggleFavorite: (() -> Unit)? = null,
     onExitYouTube: () -> Unit,
     onBindYouTubePlayer: (YouTubePlayer) -> Unit,
     onUnbindYouTubePlayer: () -> Unit,
@@ -513,12 +515,15 @@ fun PlayerDeckModule(
                         Text(
                             text = marqueeText,
                             fontFamily = JetBrainsMonoFamily,
-                            fontSize = 11.sp,
+                            fontSize = if (sizing.isCarMode) 13.5.sp else 11.sp,
                             color = WinampColors.LcdGreen,
                             maxLines = 1,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                .padding(
+                                    horizontal = 6.dp,
+                                    vertical = if (sizing.isCarMode) 6.dp else 4.dp
+                                )
                                 .basicMarquee()
                                 .testTag("player_marquee_lcd")
                         )
@@ -572,6 +577,14 @@ fun PlayerDeckModule(
                         )
                         Spacer(Modifier.width(4.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (onToggleFavorite != null && track != null) {
+                                MiniTogglePill(
+                                    label = "FAV",
+                                    active = track.isFavorite,
+                                    testTag = "deck_fav_indicator",
+                                    onClick = onToggleFavorite
+                                )
+                            }
                             MiniTogglePill(
                                 label = "EQ",
                                 active = eqEnabled,
