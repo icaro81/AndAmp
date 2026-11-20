@@ -197,7 +197,7 @@ fun MiscManagerSheet(
     onToggleFavorite: (Track) -> Unit,
     onToggleBitPerfectUsb: (Boolean) -> Unit,
     onSaveUpdateRepo: (String) -> Unit = {},
-    onCheckUpdates: () -> Unit = {},
+    onCheckUpdates: (String) -> Unit = {},
     onOpenUpdateDialog: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
@@ -484,8 +484,7 @@ fun MiscManagerSheet(
                     ) {
                         WinampMetallicButton(
                             onClick = {
-                                onSaveUpdateRepo(repoText)
-                                onCheckUpdates()
+                                onCheckUpdates(repoText)
                             },
                             testTag = "misc_check_updates_btn",
                             contentDesc = "Buscar actualización interna",
@@ -506,6 +505,13 @@ fun MiscManagerSheet(
                             appUpdateState is AppUpdateUiState.ReadyToInstall ||
                             appUpdateState is AppUpdateUiState.NeedsInstallPermission
                         ) {
+                            val actionLabel = when (appUpdateState) {
+                                is AppUpdateUiState.Available -> "ACTUALIZAR v${appUpdateState.info.version}"
+                                is AppUpdateUiState.Downloading -> "PROGRESO"
+                                is AppUpdateUiState.ReadyToInstall -> "INSTALAR APK"
+                                is AppUpdateUiState.NeedsInstallPermission -> "PERMITIR"
+                                else -> "INSTALAR"
+                            }
                             WinampMetallicButton(
                                 onClick = onOpenUpdateDialog,
                                 testTag = "misc_open_update_dialog_btn",
@@ -513,7 +519,7 @@ fun MiscManagerSheet(
                                 minHeight = 42.dp
                             ) {
                                 Text(
-                                    text = "INSTALAR",
+                                    text = actionLabel,
                                     fontFamily = JetBrainsMonoFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp,

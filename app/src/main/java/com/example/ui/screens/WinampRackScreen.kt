@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -132,7 +133,9 @@ fun WinampRackScreen(
     onYouTubeError: (String) -> Unit,
     onSaveUpdateRepo: (String) -> Unit = {},
     onCheckUpdates: () -> Unit = {},
+    onCheckUpdatesForRepo: ((String) -> Unit)? = null,
     onOpenUpdateDialog: () -> Unit = {},
+    showUpdateDialog: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -140,6 +143,12 @@ fun WinampRackScreen(
     var showMiscSheet by remember { mutableStateOf(false) }
     var showPresetsSheet by remember { mutableStateOf(false) }
     var showListOptsSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showUpdateDialog) {
+        if (showUpdateDialog) {
+            showMiscSheet = false
+        }
+    }
 
     val activeTrack = playbackState.currentTrack ?: displayedTracks.firstOrNull() ?: allTracks.firstOrNull()
     val selectedOrActiveTrack = remember(selectedTrackId, displayedTracks, activeTrack) {
@@ -538,7 +547,14 @@ fun WinampRackScreen(
             onToggleFavorite = onToggleFavorite,
             onToggleBitPerfectUsb = onToggleBitPerfectUsb,
             onSaveUpdateRepo = onSaveUpdateRepo,
-            onCheckUpdates = onCheckUpdates,
+            onCheckUpdates = { repo ->
+                if (onCheckUpdatesForRepo != null) {
+                    onCheckUpdatesForRepo(repo)
+                } else {
+                    onSaveUpdateRepo(repo)
+                    onCheckUpdates()
+                }
+            },
             onOpenUpdateDialog = {
                 showMiscSheet = false
                 onOpenUpdateDialog()

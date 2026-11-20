@@ -16,10 +16,10 @@ El proyecto incluye el workflow `.github/workflows/android-ci.yml` listo para ej
    git remote add origin https://github.com/icaro81/AndAmp.git
    git push -u origin main
    ```
-3. Cada `push` a `main` ejecuta las pruebas unitarias/Robolectric, sube el artefacto en **Actions → Summary** y publica/actualiza una **Pre-release (`latest-ci`)** en la pestaña **Releases** del repositorio con descarga directa del archivo `.apk` (visible incluso sin iniciar sesión).
-4. Para publicar una actualización oficial que los usuarios reciban **dentro de la aplicación**, crea una etiqueta con versión semántica (`v1.0.1`, `v1.1.0`, etc.):
+3. Cada `push` a `main` o ejecución manual (`Run workflow`) ejecuta las pruebas unitarias/Robolectric, adjunta el artefacto en **Actions → Summary** y publica automáticamente una **Release oficial (`Latest`, `v1.0.<run>`)** en la pestaña **Releases** del repositorio (`https://github.com/icaro81/AndAmp/releases/latest`) con descarga directa del archivo `.apk`.
+4. Si prefieres usar una versión personalizada (por ejemplo `v1.1.0`), crea y sube una etiqueta:
    ```bash
-   git tag v1.0.1
-   git push origin v1.0.1
+   git tag v1.1.0
+   git push origin v1.1.0
    ```
-5. Dentro de **AndAmp**, abre **MISC → ACTUALIZACIONES**: ya viene preconfigurado con `icaro81/AndAmp` para comprobar, anunciar, descargar e instalar nuevas versiones oficiales directamente sin abrir el navegador.
+5. Dentro de **AndAmp**, abre **MISC → ACTUALIZACIONES** (ya viene preconfigurado con `icaro81/AndAmp`) para comprobar, descargar e instalar cualquier nueva compilación directamente sin abrir el navegador.

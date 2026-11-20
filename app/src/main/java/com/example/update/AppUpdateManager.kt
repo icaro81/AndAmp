@@ -6,10 +6,12 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -55,7 +57,8 @@ class AppUpdateManager(private val context: Context) {
 
     suspend fun checkLatestRelease(
         repo: String,
-        currentVersion: String
+        currentVersion: String,
+        preferReleaseApk: Boolean = !BuildConfig.DEBUG
     ): Result<ReleaseUpdateInfo?> = withContext(Dispatchers.IO) {
         runCatching {
             val normalizedRepo = repo.trim()
@@ -71,21 +74,63 @@ class AppUpdateManager(private val context: Context) {
                 "Configura un repositorio GitHub válido (ej. icaro81/AndAmp) en MISC → Actualizaciones"
             }
 
-            val req = Request.Builder()
+            // 1) Try official /releases/latest first
+            val latestReq = Request.Builder()
                 .url("https://api.github.com/repos/$normalizedRepo/releases/latest")
                 .header("Accept", "application/vnd.github+json")
                 .header("User-Agent", "AndAmp-Updater/$currentVersion")
                 .build()
 
-            client.newCall(req).execute().use { resp ->
+            client.newCall(latestReq).execute().use { resp ->
+                when (resp.code) {
+                    200 -> {
+                        val body = resp.body?.string().orEmpty()
+                        val obj = JSONObject(body)
+                        val parsed = parseReleaseObject(
+                            obj = obj,
+                            currentVersion = currentVersion,
+                            allowPrerelease = false,
+                            preferReleaseApk = preferReleaseApk
+                        )
+                        if (parsed != null) return@runCatching parsed
+                        // If /releases/latest already points to an APK-bearing release <= currentVersion,
+                        // double-check list only if it lacked an APK asset.
+                        val assets = obj.optJSONArray("assets")
+                        val hasApk = assets != null && (0 until assets.length()).any { idx ->
+                            assets.optJSONObject(idx)?.optString("name")?.endsWith(".apk", ignoreCase = true) == true
+                        }
+                        if (hasApk) return@runCatching null
+                    }
+                    404 -> Unit // Fall through to /releases list (handles prerelease-only repos)
+                    403 -> error("Límite de consultas de GitHub alcanzado (HTTP 403). Intenta en unos minutos.")
+                    else -> error("Error HTTP ${resp.code} al comprobar actualizaciones")
+                }
+            }
+
+            // 2) Fallback: scan recent releases (supports pre-releases or CI releases without latest tag)
+            val listReq = Request.Builder()
+                .url("https://api.github.com/repos/$normalizedRepo/releases?per_page=10")
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "AndAmp-Updater/$currentVersion")
+                .build()
+
+            client.newCall(listReq).execute().use { resp ->
                 if (resp.code == 404) {
-                    return@use null
+                    error("Repositorio $normalizedRepo no encontrado o privado en GitHub.")
                 }
                 if (!resp.isSuccessful) {
-                    error("Error HTTP ${resp.code} al comprobar actualizaciones")
+                    error("Error HTTP ${resp.code} al consultar releases de $normalizedRepo")
                 }
                 val body = resp.body?.string().orEmpty()
-                parseLatestReleaseJson(body, currentVersion)
+                val arr = JSONArray(body)
+                if (arr.length() == 0) {
+                    error("Aún no hay ningún Release publicado en $normalizedRepo.")
+                }
+                parseReleasesListJson(
+                    jsonArrayText = body,
+                    currentVersion = currentVersion,
+                    preferReleaseApk = preferReleaseApk
+                )
             }
         }
     }
@@ -135,12 +180,27 @@ class AppUpdateManager(private val context: Context) {
                     }
                 }
             }
+
+            if (!isValidApkFile(targetFile)) {
+                runCatching { targetFile.delete() }
+                error("El archivo descargado no es un paquete APK válido.")
+            }
             targetFile
         }
     }
 
+    private fun isValidApkFile(file: File): Boolean {
+        if (!file.exists() || file.length() < 1024L) return false
+        return runCatching {
+            file.inputStream().use { input ->
+                val header = ByteArray(2)
+                input.read(header) == 2 && header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte()
+            }
+        }.getOrDefault(false)
+    }
+
     fun launchApkInstaller(apkFile: File): ApkInstallResult {
-        if (!apkFile.exists()) return ApkInstallResult.ERROR
+        if (!isValidApkFile(apkFile)) return ApkInstallResult.ERROR
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             !context.packageManager.canRequestPackageInstalls()
@@ -158,6 +218,8 @@ class AppUpdateManager(private val context: Context) {
                 setDataAndType(contentUri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_RETURN_RESULT, false)
             }
             context.startActivity(intent)
             ApkInstallResult.LAUNCHED_INSTALLER
@@ -175,36 +237,93 @@ class AppUpdateManager(private val context: Context) {
     }
 
     companion object {
-        fun parseLatestReleaseJson(jsonText: String, currentVersion: String): ReleaseUpdateInfo? {
+        private val VERSION_FROM_ASSET_REGEX = Regex("""v?(\d+\.\d+(?:\.\d+)*)""")
+
+        fun parseLatestReleaseJson(
+            jsonText: String,
+            currentVersion: String,
+            preferReleaseApk: Boolean = false
+        ): ReleaseUpdateInfo? {
             if (jsonText.isBlank()) return null
             val obj = JSONObject(jsonText)
-            if (obj.optBoolean("draft", false) || obj.optBoolean("prerelease", false)) {
-                return null
+            return parseReleaseObject(
+                obj = obj,
+                currentVersion = currentVersion,
+                allowPrerelease = false,
+                preferReleaseApk = preferReleaseApk
+            )
+        }
+
+        fun parseReleasesListJson(
+            jsonArrayText: String,
+            currentVersion: String,
+            preferReleaseApk: Boolean = false
+        ): ReleaseUpdateInfo? {
+            if (jsonArrayText.isBlank()) return null
+            val array = JSONArray(jsonArrayText)
+            var bestStable: ReleaseUpdateInfo? = null
+            var bestAny: ReleaseUpdateInfo? = null
+
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                if (obj.optBoolean("draft", false)) continue
+                val isPrerelease = obj.optBoolean("prerelease", false)
+                val candidate = parseReleaseObject(
+                    obj = obj,
+                    currentVersion = currentVersion,
+                    allowPrerelease = true,
+                    preferReleaseApk = preferReleaseApk
+                ) ?: continue
+
+                if (!isPrerelease) {
+                    if (bestStable == null || isNewerVersion(candidate.version, bestStable.version)) {
+                        bestStable = candidate
+                    }
+                }
+                if (bestAny == null || isNewerVersion(candidate.version, bestAny.version)) {
+                    bestAny = candidate
+                }
             }
-            val rawTag = obj.optString("tag_name").trim()
-            if (rawTag.isBlank()) return null
-            val cleanRemote = cleanVersion(rawTag)
-            if (!isNewerVersion(cleanRemote, currentVersion)) {
-                return null
-            }
+            return bestStable ?: bestAny
+        }
+
+        private fun parseReleaseObject(
+            obj: JSONObject,
+            currentVersion: String,
+            allowPrerelease: Boolean,
+            preferReleaseApk: Boolean
+        ): ReleaseUpdateInfo? {
+            if (obj.optBoolean("draft", false)) return null
+            if (!allowPrerelease && obj.optBoolean("prerelease", false)) return null
 
             val assets = obj.optJSONArray("assets") ?: return null
+            var chosenName = ""
             var chosenUrl = ""
             var chosenSize = 0L
+
             for (i in 0 until assets.length()) {
                 val asset = assets.optJSONObject(i) ?: continue
                 val name = asset.optString("name")
                 val url = asset.optString("browser_download_url")
                 if (name.endsWith(".apk", ignoreCase = true) && url.isNotBlank()) {
-                    val isReleaseApk = name.contains("release", ignoreCase = true)
-                    if (chosenUrl.isBlank() || isReleaseApk) {
+                    val isReleaseApk = name.contains("-release", ignoreCase = true) ||
+                        name.contains("_release", ignoreCase = true)
+                    val matchesPreferred = if (preferReleaseApk) isReleaseApk else !isReleaseApk
+                    if (chosenUrl.isBlank() || matchesPreferred) {
+                        chosenName = name
                         chosenUrl = url
                         chosenSize = asset.optLong("size", 0L)
-                        if (isReleaseApk) break
+                        if (matchesPreferred) break
                     }
                 }
             }
             if (chosenUrl.isBlank()) return null
+
+            val rawTag = obj.optString("tag_name").trim()
+            val cleanRemote = extractSemver(rawTag).ifBlank { extractSemver(chosenName) }
+            if (cleanRemote.isBlank() || !isNewerVersion(cleanRemote, currentVersion)) {
+                return null
+            }
 
             return ReleaseUpdateInfo(
                 version = cleanRemote,
@@ -213,6 +332,14 @@ class AppUpdateManager(private val context: Context) {
                 apkUrl = chosenUrl,
                 fileSizeBytes = chosenSize
             )
+        }
+
+        private fun extractSemver(raw: String): String {
+            val cleaned = cleanVersion(raw)
+            if (cleaned.split('.').all { it.toIntOrNull() != null } && cleaned.isNotBlank()) {
+                return cleaned
+            }
+            return VERSION_FROM_ASSET_REGEX.find(raw)?.groupValues?.getOrNull(1).orEmpty()
         }
 
         fun cleanVersion(raw: String): String =

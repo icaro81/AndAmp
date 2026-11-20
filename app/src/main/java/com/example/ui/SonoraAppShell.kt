@@ -217,7 +217,9 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
                 onYouTubeError = viewModel::onYouTubeError,
                 onSaveUpdateRepo = viewModel::saveGithubUpdateRepo,
                 onCheckUpdates = { viewModel.checkForUpdates(manual = true) },
+                onCheckUpdatesForRepo = { repo -> viewModel.checkForUpdates(manual = true, repoOverride = repo) },
                 onOpenUpdateDialog = viewModel::reopenUpdateDialog,
+                showUpdateDialog = showUpdateDialog,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)

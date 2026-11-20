@@ -86,6 +86,41 @@ class ExampleRobolectricTest {
     assertEquals("icaro81/AndAmp", com.example.data.local.AppUpdatePrefs().githubRepo)
     assertEquals("icaro81/AndAmp", com.example.data.local.AppUpdatePrefs.normalizeRepo("usuario/AndAmp"))
     assertEquals("icaro81/AndAmp", com.example.data.local.AppUpdatePrefs.normalizeRepo("https://github.com/icaro81/AndAmp.git"))
+
+    val listJson = """
+      [
+        {
+          "tag_name": "latest-ci",
+          "name": "AndAmp CI",
+          "body": "CI Build",
+          "draft": false,
+          "prerelease": true,
+          "assets": [
+            {
+              "name": "AndAmp-v1.0.5.apk",
+              "size": 19000000,
+              "browser_download_url": "https://github.com/icaro81/AndAmp/releases/download/latest-ci/AndAmp-v1.0.5.apk"
+            },
+            {
+              "name": "AndAmp-v1.0.5-release.apk",
+              "size": 17000000,
+              "browser_download_url": "https://github.com/icaro81/AndAmp/releases/download/latest-ci/AndAmp-v1.0.5-release.apk"
+            }
+          ]
+        }
+      ]
+    """.trimIndent()
+    val fallbackDebug = com.example.update.AppUpdateManager.parseReleasesListJson(listJson, "1.0.0", preferReleaseApk = false)
+    assertEquals("1.0.5", fallbackDebug?.version)
+    assertEquals(
+      "https://github.com/icaro81/AndAmp/releases/download/latest-ci/AndAmp-v1.0.5.apk",
+      fallbackDebug?.apkUrl
+    )
+    val fallbackRelease = com.example.update.AppUpdateManager.parseReleasesListJson(listJson, "1.0.0", preferReleaseApk = true)
+    assertEquals(
+      "https://github.com/icaro81/AndAmp/releases/download/latest-ci/AndAmp-v1.0.5-release.apk",
+      fallbackRelease?.apkUrl
+    )
   }
 
   @Test

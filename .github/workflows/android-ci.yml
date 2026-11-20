@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Test & Build APK
@@ -49,19 +53,22 @@ jobs:
         with:
           gradle-version: '9.9.2'
 
-      - name: Determine app version from tag if present
+      - name: Determine app version from tag or run number
         id: version
         run: |
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             TAG_VER="${GITHUB_REF_NAME#v}"
             echo "version_name=${TAG_VER}" >> "$GITHUB_OUTPUT"
-            echo "version_code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+            echo "release_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
             echo "is_tag=true" >> "$GITHUB_OUTPUT"
           else
-            echo "version_name=1.0.0" >> "$GITHUB_OUTPUT"
-            echo "version_code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+            VER="1.0.${{ github.run_number }}"
+            echo "version_name=${VER}" >> "$GITHUB_OUTPUT"
+            echo "release_tag=v${VER}" >> "$GITHUB_OUTPUT"
             echo "is_tag=false" >> "$GITHUB_OUTPUT"
           fi
+          CODE=$(( 100 + ${{ github.run_number }} ))
+          echo "version_code=${CODE}" >> "$GITHUB_OUTPUT"
 
       - name: Run Unit & Robolectric Tests
         run: |
@@ -115,46 +122,43 @@ jobs:
           if-no-files-found: error
 
       - name: Publish Direct APK to GitHub Releases
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ steps.version.outputs.is_tag }}" = "true" ]; then
-            TAG="${{ github.ref_name }}"
-            if gh release view "$TAG" >/dev/null 2>&1; then
-              gh release upload "$TAG" dist/*.apk --clobber
-            else
-              gh release create "$TAG" dist/*.apk \
-                --title "AndAmp ${TAG}" \
-                --generate-notes
-            fi
+          TAG="${{ steps.version.outputs.release_tag }}"
+          VER="${{ steps.version.outputs.version_name }}"
+          gh release delete latest-ci -y >/dev/null 2>&1 || true
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.apk --clobber
+            gh release edit "$TAG" \
+              --latest \
+              --title "AndAmp ${TAG}" \
+              --notes "Compilación automática desde \`${{ github.ref_name }}\` (commit \`${{ github.sha }}\`). Descarga e instala \`AndAmp-v${VER}.apk\` directamente abajo o actualiza desde **MISC → ACTUALIZACIONES** dentro de AndAmp."
           else
-            CI_TAG="latest-ci"
-            if gh release view "$CI_TAG" >/dev/null 2>&1; then
-              gh release upload "$CI_TAG" dist/*.apk --clobber
-              gh release edit "$CI_TAG" \
-                --title "AndAmp CI Build #${{ github.run_number }}" \
-                --notes "Compilación automática desde \`${{ github.ref_name }}\` (commit \`${{ github.sha }}\`). Descarga directa del archivo \`.apk\` abajo."
-            else
-              gh release create "$CI_TAG" dist/*.apk \
-                --prerelease \
-                --title "AndAmp CI Build #${{ github.run_number }}" \
-                --notes "Compilación automática desde \`${{ github.ref_name }}\` (commit \`${{ github.sha }}\`). Descarga directa del archivo \`.apk\` abajo."
-            fi
+            gh release create "$TAG" dist/*.apk \
+              --target "${{ github.sha }}" \
+              --latest \
+              --title "AndAmp ${TAG}" \
+              --notes "Compilación automática desde \`${{ github.ref_name }}\` (commit \`${{ github.sha }}\`). Descarga e instala \`AndAmp-v${VER}.apk\` directamente abajo o actualiza desde **MISC → ACTUALIZACIONES** dentro de AndAmp."
           fi
 
       - name: Write APK Download Summary
         run: |
+          TAG="${{ steps.version.outputs.release_tag }}"
+          VER="${{ steps.version.outputs.version_name }}"
           {
-            echo "### AndAmp APK compilado"
+            echo "### AndAmp APK compilado (v${VER})"
             echo ""
             for f in dist/*.apk; do
-              echo "- **Archivo:** \`$(basename "$f")\`"
+              BASE="$(basename "$f")"
+              echo "- **Archivo:** \`${BASE}\`"
+              if [ "${{ github.event_name }}" != "pull_request" ]; then
+                echo "- **Descarga directa APK:** https://github.com/${{ github.repository }}/releases/download/${TAG}/${BASE}"
+              fi
             done
-            if [ "${{ steps.version.outputs.is_tag }}" = "true" ]; then
-              echo "- **Descarga directa (Release ${{ github.ref_name }}):** https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
-            elif [ "${{ github.event_name }}" = "push" ]; then
-              echo "- **Descarga directa (Pre-release CI):** https://github.com/${{ github.repository }}/releases/tag/latest-ci"
+            if [ "${{ github.event_name }}" != "pull_request" ]; then
+              echo "- **Página de Release (Latest):** https://github.com/${{ github.repository }}/releases/tag/${TAG}"
             fi
-            echo "- **Artefactos del workflow:** revisa la pestaña **Summary** de esta ejecución."
+            echo "- **Artefactos del workflow:** disponibles al pie de la pestaña **Summary**."
           } >> "$GITHUB_STEP_SUMMARY"

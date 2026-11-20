@@ -867,8 +867,11 @@ class SonoraViewModel(
         }
     }
 
-    fun checkForUpdates(manual: Boolean = true) {
+    fun checkForUpdates(manual: Boolean = true, repoOverride: String? = null) {
         viewModelScope.launch {
+            if (repoOverride != null) {
+                preferencesStore.setGithubUpdateRepo(repoOverride)
+            }
             val prefs = preferencesStore.appUpdatePrefsFlow.first()
             _appUpdateState.value = AppUpdateUiState.Checking
             val result = appUpdateManager.checkLatestRelease(
