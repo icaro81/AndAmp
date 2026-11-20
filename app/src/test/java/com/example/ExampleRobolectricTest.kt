@@ -1,6 +1,8 @@
 package com.example
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -21,6 +23,7 @@ import com.example.ui.theme.SonoraTheme
 import com.example.ui.viewmodel.LibraryFormatFilter
 import com.example.ui.viewmodel.SmbBrowserUiState
 import com.example.ui.viewmodel.YouTubeSearchUiState
+import com.example.ui.viewmodel.browserKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -544,5 +547,263 @@ class ExampleRobolectricTest {
     val autoRetryState = YouTubePlaybackState(hasAutoRetriedPrivacy = true, privacyEnhancedMode = true)
     assertEquals(true, autoRetryState.hasAutoRetriedPrivacy)
     assertEquals(true, autoRetryState.privacyEnhancedMode)
+  }
+
+  @Test
+  @Config(sdk = [36], qualifiers = "w411dp-h915dp-xxhdpi")
+  fun `smb browser supports multi folder checkboxes and guardar seleccionadas bar`() {
+    val testServer = com.example.domain.model.SmbServerProfile(
+      id = 1L,
+      alias = "Router GPON",
+      host = "gpon.net",
+      defaultShare = "USB1_1"
+    )
+    val dirs = listOf(
+      com.example.domain.model.SmbBrowserEntry(
+        name = "Rock",
+        relativePath = "MUSICA\\Rock",
+        shareName = "USB1_1",
+        isDirectory = true
+      ),
+      com.example.domain.model.SmbBrowserEntry(
+        name = "Jazz",
+        relativePath = "MUSICA\\Jazz",
+        shareName = "USB1_1",
+        isDirectory = true
+      )
+    )
+    var importedBatchCount = 0
+
+    composeTestRule.setContent {
+      var browserState by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(
+          SmbBrowserUiState(
+            activeServer = testServer,
+            currentShare = "USB1_1",
+            currentPath = "MUSICA",
+            protocolLabel = "SMB1/CIFS",
+            entries = dirs
+          )
+        )
+      }
+      SonoraTheme {
+        WinampRackScreen(
+          playbackState = PlaybackUiState(),
+          playbackSourceMode = PlaybackSourceMode.MEDIA3_AUDIO,
+          youTubeState = YouTubePlaybackState(),
+          spectrumBars = FloatArray(24),
+          outputInfo = AudioOutputInfo(),
+          eqSettings = EqSettingsState(),
+          customEqPresets = emptyList(),
+          allTracks = emptyList(),
+          displayedTracks = emptyList(),
+          playlists = emptyList(),
+          activePlaylist = null,
+          selectedTrackId = null,
+          searchQuery = "",
+          selectedFilter = LibraryFormatFilter.ALL,
+          isImporting = false,
+          smbServers = listOf(testServer),
+          smbBrowserState = browserState,
+          youTubeSearchState = YouTubeSearchUiState(),
+          recentYouTubePlaylists = emptyList(),
+          onPlayExplicit = {},
+          onPauseExplicit = {},
+          onStopPlayback = {},
+          onSkipPrevious = {},
+          onSkipNext = {},
+          onSeekTo = {},
+          onToggleShuffle = {},
+          onCycleRepeat = {},
+          onEqEnabledChange = {},
+          onEqAutoToggle = {},
+          onPreampChange = {},
+          onBandChange = { _, _ -> },
+          onApplyPreset = {},
+          onResetEqFlat = {},
+          onSaveCustomPreset = {},
+          onDeleteCustomPreset = {},
+          onPlayTrack = {},
+          onSelectTrack = {},
+          onRemoveSelectedOrActive = {},
+          onSelectPlaylist = {},
+          onCreatePlaylist = { _, _ -> },
+          onRenamePlaylist = { _, _, _ -> },
+          onDeletePlaylist = {},
+          onAddTrackToPlaylist = { _, _ -> },
+          onToggleFavorite = {},
+          onToggleBitPerfectUsb = {},
+          onSearchQueryChange = {},
+          onSelectFilter = {},
+          onPlayAll = {},
+          onMoveSelectedInPlaylist = {},
+          onLaunchFilePicker = {},
+          onLaunchFolderPicker = {},
+          onSaveSmbServer = {},
+          onDeleteSmbServer = {},
+          onOpenSmbServer = {},
+          onNavigateSmbEntry = {},
+          onNavigateSmbUp = {},
+          onCloseSmbBrowser = {},
+          onImportAllSmbInFolder = {},
+          onToggleSmbFolderSelection = { entry ->
+            val key = entry.browserKey()
+            val next = if (key in browserState.selectedFolderKeys) {
+              browserState.selectedFolderKeys - key
+            } else {
+              browserState.selectedFolderKeys + key
+            }
+            browserState = browserState.copy(selectedFolderKeys = next)
+          },
+          onSelectAllSmbFolders = {
+            browserState = browserState.copy(
+              selectedFolderKeys = browserState.entries.map { it.browserKey() }.toSet()
+            )
+          },
+          onClearSmbFolderSelection = {
+            browserState = browserState.copy(selectedFolderKeys = emptySet())
+          },
+          onImportSelectedSmbFolders = {
+            importedBatchCount = browserState.selectedFolderKeys.size
+          },
+          onYouTubeQueryChange = {},
+          onSearchYouTube = {},
+          onPlayYouTubePlaylist = {},
+          onDeleteRecentYouTube = {},
+          onExitYouTube = {},
+          onBindYouTubePlayer = {},
+          onUnbindYouTubePlayer = {},
+          onYouTubeStateChanged = {},
+          onYouTubeProgress = { _, _ -> },
+          onYouTubeVideoChanged = {},
+          onYouTubeError = {}
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("btn_playlist_add").performScrollTo().performClick()
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("add_tab_nas").performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("smb_folder_checkbox_Rock").performClick()
+    composeTestRule.onNodeWithTag("smb_folder_checkbox_Jazz").performClick()
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("smb_multi_select_bar").assertIsDisplayed()
+    composeTestRule.onNodeWithText("2 carpeta(s) seleccionada(s)").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("smb_import_selected_folders").performClick()
+    assertEquals(2, importedBatchCount)
+  }
+
+  @Test
+  @Config(sdk = [36], qualifiers = "w1024dp-h540dp-land-xxhdpi")
+  fun `android auto manifest metadata and wide landscape fullscreen toggle work cleanly`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val pm = context.packageManager
+    val appInfo = pm.getApplicationInfo(context.packageName, android.content.pm.PackageManager.GET_META_DATA)
+    assertEquals(android.content.pm.ApplicationInfo.CATEGORY_AUDIO, appInfo.category)
+    assertEquals(
+      R.xml.automotive_app_desc,
+      appInfo.metaData.getInt("com.google.android.gms.car.application")
+    )
+
+    val mediaLibServices = pm.queryIntentServices(
+      android.content.Intent("androidx.media3.session.MediaLibraryService"),
+      0
+    )
+    assertEquals(true, mediaLibServices.any { it.serviceInfo.packageName == context.packageName })
+
+    val manager = com.example.update.AppUpdateManager(context)
+    val badApk = java.io.File(context.cacheDir, "invalid.apk").apply { writeText("not an apk") }
+    assertEquals(
+      com.example.update.ApkInstallResult.ERROR,
+      manager.launchApkInstaller(badApk)
+    )
+
+    var fullscreenState = false
+    composeTestRule.setContent {
+      SonoraTheme {
+        WinampRackScreen(
+          playbackState = PlaybackUiState(),
+          playbackSourceMode = PlaybackSourceMode.MEDIA3_AUDIO,
+          youTubeState = YouTubePlaybackState(),
+          spectrumBars = FloatArray(24),
+          outputInfo = AudioOutputInfo(),
+          eqSettings = EqSettingsState(),
+          customEqPresets = emptyList(),
+          allTracks = emptyList(),
+          displayedTracks = emptyList(),
+          playlists = emptyList(),
+          activePlaylist = null,
+          selectedTrackId = null,
+          searchQuery = "",
+          selectedFilter = LibraryFormatFilter.ALL,
+          isImporting = false,
+          smbServers = emptyList(),
+          smbBrowserState = SmbBrowserUiState(),
+          youTubeSearchState = YouTubeSearchUiState(),
+          recentYouTubePlaylists = emptyList(),
+          isLandscapeFullscreen = fullscreenState,
+          onSetLandscapeFullscreen = { fullscreenState = it },
+          onPlayExplicit = {},
+          onPauseExplicit = {},
+          onStopPlayback = {},
+          onSkipPrevious = {},
+          onSkipNext = {},
+          onSeekTo = {},
+          onToggleShuffle = {},
+          onCycleRepeat = {},
+          onEqEnabledChange = {},
+          onEqAutoToggle = {},
+          onPreampChange = {},
+          onBandChange = { _, _ -> },
+          onApplyPreset = {},
+          onResetEqFlat = {},
+          onSaveCustomPreset = {},
+          onDeleteCustomPreset = {},
+          onPlayTrack = {},
+          onSelectTrack = {},
+          onRemoveSelectedOrActive = {},
+          onSelectPlaylist = {},
+          onCreatePlaylist = { _, _ -> },
+          onRenamePlaylist = { _, _, _ -> },
+          onDeletePlaylist = {},
+          onAddTrackToPlaylist = { _, _ -> },
+          onToggleFavorite = {},
+          onToggleBitPerfectUsb = {},
+          onSearchQueryChange = {},
+          onSelectFilter = {},
+          onPlayAll = {},
+          onMoveSelectedInPlaylist = {},
+          onLaunchFilePicker = {},
+          onLaunchFolderPicker = {},
+          onSaveSmbServer = {},
+          onDeleteSmbServer = {},
+          onOpenSmbServer = {},
+          onNavigateSmbEntry = {},
+          onNavigateSmbUp = {},
+          onCloseSmbBrowser = {},
+          onImportAllSmbInFolder = {},
+          onYouTubeQueryChange = {},
+          onSearchYouTube = {},
+          onPlayYouTubePlaylist = {},
+          onDeleteRecentYouTube = {},
+          onExitYouTube = {},
+          onBindYouTubePlayer = {},
+          onUnbindYouTubePlayer = {},
+          onYouTubeStateChanged = {},
+          onYouTubeProgress = { _, _ -> },
+          onYouTubeVideoChanged = {},
+          onYouTubeError = {}
+        )
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("landscape_tab_0").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("landscape_fullscreen_toggle").assertIsDisplayed().performClick()
+    assertEquals(true, fullscreenState)
   }
 }

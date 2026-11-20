@@ -260,7 +260,24 @@ class PlayerController(
 
     private fun syncStateFromPlayer(mc: MediaController) {
         val idx = mc.currentMediaItemIndex
-        val track = trackQueue.getOrNull(idx)
+        val currentItem = mc.currentMediaItem
+        val track = trackQueue.getOrNull(idx) ?: currentItem?.let { item ->
+            val meta = item.mediaMetadata
+            val title = meta.title?.toString()?.takeIf { it.isNotBlank() } ?: return@let null
+            val tid = item.mediaId.removePrefix(PlaybackService.PREFIX_TRACK).toLongOrNull() ?: 0L
+            Track(
+                id = tid,
+                uriString = item.localConfiguration?.uri?.toString().orEmpty(),
+                title = title,
+                artist = meta.artist?.toString().orEmpty().ifBlank { "AndAmp" },
+                album = meta.albumTitle?.toString().orEmpty(),
+                durationMs = mc.duration.takeIf { it > 0L } ?: 0L,
+                format = com.example.domain.model.AudioFormatBadge.UNKNOWN,
+                sampleRateHz = 44_100,
+                bitDepth = 16,
+                bitrateKbps = 0
+            )
+        }
         val playerDur = mc.duration.takeIf { it > 0L } ?: (track?.durationMs ?: 0L)
         val repeatState = when (mc.repeatMode) {
             Player.REPEAT_MODE_ALL -> RepeatModeState.ALL

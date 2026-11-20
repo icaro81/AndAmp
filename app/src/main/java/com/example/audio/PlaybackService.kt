@@ -17,6 +17,8 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters.AudioOffloadPreferences
 import androidx.media3.common.util.UnstableApi
@@ -30,15 +32,27 @@ import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionError
 import com.example.MainActivity
 import com.example.R
 import com.example.SonoraApplication
+import com.example.data.local.TrackEntity
 import com.example.data.repository.AlacUriRegistry
+import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 
 enum class YouTubeBgCommand {
     TOGGLE_PLAY_PAUSE,
@@ -57,12 +71,13 @@ object YouTubeBgBridge {
 }
 
 @UnstableApi
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
 
-    private var mediaSession: MediaSession? = null
+    private var mediaLibrarySession: MediaLibrarySession? = null
     private var ytWakeLock: PowerManager.WakeLock? = null
     private var ytWifiLock: WifiManager.WifiLock? = null
     private var isYouTubeForegroundActive = false
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
@@ -162,8 +177,291 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        mediaSession = MediaSession.Builder(this, player)
+        mediaLibrarySession = MediaLibrarySession.Builder(
+            this,
+            player,
+            AndAmpLibraryCallback(app)
+        )
             .setSessionActivity(sessionActivity)
+            .build()
+    }
+
+    private inner class AndAmpLibraryCallback(
+        private val app: SonoraApplication
+    ) : MediaLibrarySession.Callback {
+
+        private val trackDao get() = app.database.trackDao()
+        private val playlistDao get() = app.database.playlistDao()
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val root = buildFolderItem(
+                mediaId = NODE_ROOT,
+                title = "AndAmp",
+                mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED
+            )
+            return Futures.immediateFuture(LibraryResult.ofItem(root, params))
+        }
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch {
+                try {
+                    val items: List<MediaItem> = when {
+                        parentId == NODE_ROOT -> listOf(
+                            buildFolderItem(NODE_ALL_TRACKS, "Biblioteca completa", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
+                            buildFolderItem(NODE_PLAYLISTS, "Listas de reproducción", MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS),
+                            buildFolderItem(NODE_FAVORITES, "Favoritos", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
+                            buildFolderItem(NODE_NAS_TRACKS, "Música en Red (NAS)", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                        )
+                        parentId == NODE_ALL_TRACKS ->
+                            trackDao.getAllTracksOnce().map { it.toBrowseMediaItem() }
+                        parentId == NODE_FAVORITES ->
+                            trackDao.getAllTracksOnce().filter { it.isFavorite }.map { it.toBrowseMediaItem() }
+                        parentId == NODE_NAS_TRACKS ->
+                            trackDao.getAllTracksOnce().filter { it.uriString.startsWith("smb://") }.map { it.toBrowseMediaItem() }
+                        parentId == NODE_PLAYLISTS ->
+                            playlistDao.getPlaylistsOnce().map { pl ->
+                                buildFolderItem(
+                                    mediaId = "$PREFIX_PLAYLIST${pl.playlist.id}",
+                                    title = pl.playlist.name,
+                                    subtitle = "${pl.tracks.size} pista(s)",
+                                    mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                                    isPlayable = pl.tracks.isNotEmpty()
+                                )
+                            }
+                        parentId.startsWith(PREFIX_PLAYLIST) -> {
+                            val pid = parentId.removePrefix(PREFIX_PLAYLIST).toLongOrNull()
+                            if (pid != null) {
+                                playlistDao.getTracksForPlaylistOnce(pid).map { it.toBrowseMediaItem() }
+                            } else emptyList()
+                        }
+                        else -> emptyList()
+                    }
+                    val paged = paginateList(items, page, pageSize)
+                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(paged), params))
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
+                }
+            }
+            return future
+        }
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val future = SettableFuture.create<LibraryResult<MediaItem>>()
+            serviceScope.launch {
+                try {
+                    val item = when {
+                        mediaId == NODE_ROOT -> buildFolderItem(NODE_ROOT, "AndAmp", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                        mediaId == NODE_ALL_TRACKS -> buildFolderItem(NODE_ALL_TRACKS, "Biblioteca completa", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                        mediaId == NODE_PLAYLISTS -> buildFolderItem(NODE_PLAYLISTS, "Listas de reproducción", MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS)
+                        mediaId == NODE_FAVORITES -> buildFolderItem(NODE_FAVORITES, "Favoritos", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                        mediaId == NODE_NAS_TRACKS -> buildFolderItem(NODE_NAS_TRACKS, "Música en Red (NAS)", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                        mediaId.startsWith(PREFIX_PLAYLIST) -> {
+                            val pid = mediaId.removePrefix(PREFIX_PLAYLIST).toLongOrNull()
+                            val pl = pid?.let { id -> playlistDao.getPlaylistsOnce().firstOrNull { it.playlist.id == id } }
+                            pl?.let {
+                                buildFolderItem(
+                                    mediaId = mediaId,
+                                    title = it.playlist.name,
+                                    subtitle = "${it.tracks.size} pista(s)",
+                                    mediaType = MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                                    isPlayable = it.tracks.isNotEmpty()
+                                )
+                            }
+                        }
+                        mediaId.startsWith(PREFIX_TRACK) -> {
+                            val tid = mediaId.removePrefix(PREFIX_TRACK).toLongOrNull()
+                            tid?.let { trackDao.getTrackById(it)?.toBrowseMediaItem() }
+                        }
+                        else -> {
+                            mediaId.toLongOrNull()?.let { trackDao.getTrackById(it)?.toBrowseMediaItem() }
+                        }
+                    }
+                    if (item != null) {
+                        future.set(LibraryResult.ofItem(item, null))
+                    } else {
+                        future.set(LibraryResult.ofError(SessionError.ERROR_BAD_VALUE))
+                    }
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
+                }
+            }
+            return future
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<Void>> {
+            val future = SettableFuture.create<LibraryResult<Void>>()
+            serviceScope.launch {
+                try {
+                    val count = findTracksMatchingQuery(query).size
+                    session.notifySearchResultChanged(browser, query, count, params)
+                    future.set(LibraryResult.ofVoid())
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
+                }
+            }
+            return future
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch {
+                try {
+                    val matches = findTracksMatchingQuery(query).map { it.toBrowseMediaItem() }
+                    val paged = paginateList(matches, page, pageSize)
+                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(paged), params))
+                } catch (_: Throwable) {
+                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
+                }
+            }
+            return future
+        }
+
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>
+        ): ListenableFuture<MutableList<MediaItem>> {
+            // Fast path: phone UI controllers pass items with concrete URIs already attached
+            if (mediaItems.all { it.localConfiguration != null }) {
+                return Futures.immediateFuture(mediaItems)
+            }
+
+            val future = SettableFuture.create<MutableList<MediaItem>>()
+            serviceScope.launch {
+                try {
+                    val resolved = mutableListOf<MediaItem>()
+                    for (item in mediaItems) {
+                        if (item.localConfiguration != null) {
+                            resolved.add(item)
+                            continue
+                        }
+                        val query = item.requestMetadata.searchQuery?.trim().orEmpty()
+                        when {
+                            query.isNotBlank() -> {
+                                resolved.addAll(findTracksMatchingQuery(query).map { it.toBrowseMediaItem() })
+                            }
+                            item.mediaId == NODE_ALL_TRACKS -> {
+                                resolved.addAll(trackDao.getAllTracksOnce().map { it.toBrowseMediaItem() })
+                            }
+                            item.mediaId == NODE_FAVORITES -> {
+                                resolved.addAll(trackDao.getAllTracksOnce().filter { it.isFavorite }.map { it.toBrowseMediaItem() })
+                            }
+                            item.mediaId == NODE_NAS_TRACKS -> {
+                                resolved.addAll(trackDao.getAllTracksOnce().filter { it.uriString.startsWith("smb://") }.map { it.toBrowseMediaItem() })
+                            }
+                            item.mediaId.startsWith(PREFIX_PLAYLIST) -> {
+                                val pid = item.mediaId.removePrefix(PREFIX_PLAYLIST).toLongOrNull()
+                                if (pid != null) {
+                                    resolved.addAll(playlistDao.getTracksForPlaylistOnce(pid).map { it.toBrowseMediaItem() })
+                                }
+                            }
+                            item.mediaId.startsWith(PREFIX_TRACK) -> {
+                                val tid = item.mediaId.removePrefix(PREFIX_TRACK).toLongOrNull()
+                                val entity = tid?.let { trackDao.getTrackById(it) }
+                                if (entity != null) {
+                                    resolved.add(entity.toBrowseMediaItem())
+                                }
+                            }
+                            else -> {
+                                val tid = item.mediaId.toLongOrNull()
+                                val entity = tid?.let { trackDao.getTrackById(it) }
+                                if (entity != null) {
+                                    resolved.add(entity.toBrowseMediaItem())
+                                }
+                            }
+                        }
+                    }
+                    future.set(resolved)
+                } catch (_: Throwable) {
+                    future.set(mediaItems)
+                }
+            }
+            return future
+        }
+
+        private suspend fun findTracksMatchingQuery(query: String): List<TrackEntity> {
+            val q = query.trim().lowercase()
+            val all = trackDao.getAllTracksOnce()
+            if (q.isBlank()) return all
+            return all.filter {
+                it.title.lowercase().contains(q) ||
+                    it.artist.lowercase().contains(q) ||
+                    it.album.lowercase().contains(q)
+            }
+        }
+
+        private fun paginateList(items: List<MediaItem>, page: Int, pageSize: Int): List<MediaItem> {
+            if (pageSize <= 0 || page < 0) return items
+            val fromIndex = page * pageSize
+            if (fromIndex >= items.size) return emptyList()
+            val toIndex = (fromIndex + pageSize).coerceAtMost(items.size)
+            return items.subList(fromIndex, toIndex)
+        }
+    }
+
+    private fun buildFolderItem(
+        mediaId: String,
+        title: String,
+        mediaType: Int,
+        subtitle: String? = null,
+        isPlayable: Boolean = false
+    ): MediaItem {
+        val meta = MediaMetadata.Builder()
+            .setTitle(title)
+            .setSubtitle(subtitle)
+            .setIsBrowsable(true)
+            .setIsPlayable(isPlayable)
+            .setMediaType(mediaType)
+            .build()
+        return MediaItem.Builder()
+            .setMediaId(mediaId)
+            .setMediaMetadata(meta)
+            .build()
+    }
+
+    private fun TrackEntity.toBrowseMediaItem(): MediaItem {
+        val domain = toDomain()
+        val meta = MediaMetadata.Builder()
+            .setTitle(title)
+            .setArtist(artist)
+            .setAlbumTitle(album)
+            .setSubtitle(domain.technicalSpecLabel)
+            .setIsBrowsable(false)
+            .setIsPlayable(true)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .build()
+        return MediaItem.Builder()
+            .setMediaId("$PREFIX_TRACK$id")
+            .setUri(Uri.parse(uriString))
+            .setMediaMetadata(meta)
             .build()
     }
 
@@ -217,7 +515,7 @@ class PlaybackService : MediaSessionService() {
         releaseYouTubeLocks()
         if (isYouTubeForegroundActive) {
             isYouTubeForegroundActive = false
-            val exoPlaying = mediaSession?.player?.playWhenReady == true
+            val exoPlaying = mediaLibrarySession?.player?.playWhenReady == true
             if (!exoPlaying) {
                 ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             } else {
@@ -325,10 +623,10 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaLibrarySession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val player = mediaSession?.player
+        val player = mediaLibrarySession?.player
         val exoPlaying = player != null && player.playWhenReady && player.mediaItemCount > 0
         if (!exoPlaying && !isYouTubeForegroundActive) {
             stopSelf()
@@ -336,16 +634,25 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
         releaseYouTubeLocks()
-        mediaSession?.run {
+        mediaLibrarySession?.run {
             player.release()
             release()
-            mediaSession = null
+            mediaLibrarySession = null
         }
         super.onDestroy()
     }
 
     companion object {
+        const val NODE_ROOT = "andamp_root"
+        const val NODE_ALL_TRACKS = "andamp_all_tracks"
+        const val NODE_PLAYLISTS = "andamp_playlists"
+        const val NODE_FAVORITES = "andamp_favorites"
+        const val NODE_NAS_TRACKS = "andamp_nas_tracks"
+        const val PREFIX_PLAYLIST = "playlist:"
+        const val PREFIX_TRACK = "track:"
+
         private const val CHANNEL_ID = "andamp_playback"
         private const val MEDIA_NOTIFICATION_ID = 1001
         private const val YOUTUBE_NOTIFICATION_ID = 1002

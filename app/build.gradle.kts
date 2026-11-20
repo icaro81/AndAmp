@@ -18,7 +18,7 @@ android {
     minSdk = 24
     targetSdk = 36
     versionCode = (project.findProperty("andampVersionCode") as String?)?.toIntOrNull() ?: 1
-    versionName = (project.findProperty("andampVersionName") as String?) ?: "1.0.0"
+    versionName = (project.findProperty("andampVersionName") as String?) ?: "1.1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

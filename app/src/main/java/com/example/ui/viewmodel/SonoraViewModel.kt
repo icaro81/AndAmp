@@ -61,13 +61,18 @@ enum class LibraryFormatFilter(val label: String) {
     FAVORITES("Favoritos")
 }
 
+fun SmbBrowserEntry.browserKey(): String =
+    "$shareName/${relativePath.replace('\\', '/')}".trimEnd('/')
+
 data class SmbBrowserUiState(
     val activeServer: SmbServerProfile? = null,
     val currentShare: String = "",
     val currentPath: String = "",
     val protocolLabel: String = "",
     val entries: List<SmbBrowserEntry> = emptyList(),
+    val selectedFolderKeys: Set<String> = emptySet(),
     val isLoading: Boolean = false,
+    val isBatchImporting: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -578,6 +583,75 @@ class SonoraViewModel(
         }
     }
 
+    fun toggleSmbFolderSelection(entry: SmbBrowserEntry) {
+        if (!entry.isDirectory) return
+        val key = entry.browserKey()
+        _smbBrowserState.update { st ->
+            val next = if (key in st.selectedFolderKeys) {
+                st.selectedFolderKeys - key
+            } else {
+                st.selectedFolderKeys + key
+            }
+            st.copy(selectedFolderKeys = next)
+        }
+    }
+
+    fun selectAllVisibleSmbFolders() {
+        _smbBrowserState.update { st ->
+            val allDirKeys = st.entries.filter { it.isDirectory }.map { it.browserKey() }.toSet()
+            st.copy(selectedFolderKeys = allDirKeys)
+        }
+    }
+
+    fun clearSmbFolderSelection() {
+        _smbBrowserState.update { it.copy(selectedFolderKeys = emptySet()) }
+    }
+
+    fun importSelectedSmbFolders() {
+        val st = _smbBrowserState.value
+        val server = st.activeServer ?: return
+        val selectedDirs = st.entries.filter { it.isDirectory && it.browserKey() in st.selectedFolderKeys }
+        if (selectedDirs.isEmpty()) {
+            _statusMessage.value = "Marca al menos una carpeta primero"
+            return
+        }
+        viewModelScope.launch {
+            _smbBrowserState.update { it.copy(isLoading = true, isBatchImporting = true, errorMessage = null) }
+            runCatching {
+                smbRepository.importSmbFoldersRecursive(
+                    server = server,
+                    folderEntries = selectedDirs,
+                    targetPlaylistId = _activePlaylistId.value,
+                    protocolHint = st.protocolLabel
+                )
+            }.fold(
+                onSuccess = { count ->
+                    _smbBrowserState.update {
+                        it.copy(
+                            isLoading = false,
+                            isBatchImporting = false,
+                            selectedFolderKeys = emptySet()
+                        )
+                    }
+                    _statusMessage.value = if (count > 0) {
+                        "$count pista(s) guardada(s) desde ${selectedDirs.size} carpeta(s)"
+                    } else {
+                        "Las pistas de las ${selectedDirs.size} carpeta(s) ya estaban en la biblioteca"
+                    }
+                },
+                onFailure = { err ->
+                    _smbBrowserState.update {
+                        it.copy(
+                            isLoading = false,
+                            isBatchImporting = false,
+                            errorMessage = err.localizedMessage ?: "No se pudieron importar las carpetas seleccionadas"
+                        )
+                    }
+                }
+            )
+        }
+    }
+
     fun importAllAudioInCurrentSmbFolder() {
         val st = _smbBrowserState.value
         val server = st.activeServer ?: return
@@ -985,17 +1059,11 @@ class SonoraViewModel(
             }
             dl.fold(
                 onSuccess = { file ->
-                    when (appUpdateManager.launchApkInstaller(file)) {
-                        ApkInstallResult.LAUNCHED_INSTALLER -> {
-                            _appUpdateState.value = AppUpdateUiState.ReadyToInstall(info.version, file)
-                        }
-                        ApkInstallResult.NEEDS_PERMISSION -> {
-                            _appUpdateState.value = AppUpdateUiState.NeedsInstallPermission(info.version, file)
-                        }
-                        ApkInstallResult.ERROR -> {
-                            _appUpdateState.value = AppUpdateUiState.Error("No se pudo iniciar el instalador del paquete")
-                        }
-                    }
+                    handleApkInstallResult(
+                        result = appUpdateManager.launchApkInstaller(file),
+                        apkFile = file,
+                        version = info.version
+                    )
                 },
                 onFailure = { err ->
                     _appUpdateState.value = AppUpdateUiState.Error(
@@ -1018,12 +1086,34 @@ class SonoraViewModel(
     }
 
     fun installReadyApk(apkFile: java.io.File, version: String = BuildConfig.VERSION_NAME) {
-        when (appUpdateManager.launchApkInstaller(apkFile)) {
+        handleApkInstallResult(
+            result = appUpdateManager.launchApkInstaller(apkFile),
+            apkFile = apkFile,
+            version = version
+        )
+    }
+
+    private fun handleApkInstallResult(
+        result: ApkInstallResult,
+        apkFile: java.io.File,
+        version: String
+    ) {
+        when (result) {
             ApkInstallResult.LAUNCHED_INSTALLER -> {
                 _appUpdateState.value = AppUpdateUiState.ReadyToInstall(version, apkFile)
             }
             ApkInstallResult.NEEDS_PERMISSION -> {
                 _appUpdateState.value = AppUpdateUiState.NeedsInstallPermission(version, apkFile)
+            }
+            ApkInstallResult.SIGNATURE_MISMATCH -> {
+                _appUpdateState.value = AppUpdateUiState.Error(
+                    "La versión que tienes instalada usaba un certificado antiguo diferente. Desinstálala una única vez e instala esta compilación; a partir de aquí todas las actualizaciones de GitHub se instalarán encima sin conflictos."
+                )
+            }
+            ApkInstallResult.VERSION_DOWNGRADE -> {
+                _appUpdateState.value = AppUpdateUiState.Error(
+                    "Este APK tiene un código de versión igual o inferior al instalado. Descarga la compilación más reciente de GitHub."
+                )
             }
             ApkInstallResult.ERROR -> {
                 _appUpdateState.value = AppUpdateUiState.Error("No se pudo abrir el instalador del paquete")

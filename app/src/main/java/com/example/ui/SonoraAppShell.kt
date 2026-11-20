@@ -1,6 +1,9 @@
 package com.example.ui
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -15,6 +18,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,7 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import com.example.ui.screens.AppUpdateDialog
@@ -30,6 +38,12 @@ import com.example.ui.screens.WinampRackScreen
 import com.example.ui.theme.SonoraTheme
 import com.example.ui.theme.WinampColors
 import com.example.ui.viewmodel.SonoraViewModel
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -60,7 +74,29 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
     val showUpdateDialog by viewModel.showUpdateDialog.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val view = LocalView.current
+    val activity = remember(context) { context.findActivity() }
     var askedNotificationPermission by remember { mutableStateOf(false) }
+    var isLandscapeFullscreen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isLandscapeFullscreen, activity) {
+        val window = activity?.window ?: return@LaunchedEffect
+        val controller = WindowCompat.getInsetsController(window, view)
+        if (isLandscapeFullscreen) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    DisposableEffect(activity) {
+        onDispose {
+            val window = activity?.window ?: return@onDispose
+            WindowCompat.getInsetsController(window, view).show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
 
     val notificationPermLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -120,7 +156,7 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
 
         Scaffold(
             containerColor = WinampColors.ChassisBg,
-            contentWindowInsets = WindowInsets.safeDrawing,
+            contentWindowInsets = if (isLandscapeFullscreen) WindowInsets(0) else WindowInsets.safeDrawing,
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
         ) { innerPadding ->
             WinampRackScreen(
@@ -201,6 +237,10 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
                 onNavigateSmbUp = viewModel::navigateSmbUp,
                 onCloseSmbBrowser = viewModel::closeSmbBrowser,
                 onImportAllSmbInFolder = viewModel::importAllAudioInCurrentSmbFolder,
+                onToggleSmbFolderSelection = viewModel::toggleSmbFolderSelection,
+                onSelectAllSmbFolders = viewModel::selectAllVisibleSmbFolders,
+                onClearSmbFolderSelection = viewModel::clearSmbFolderSelection,
+                onImportSelectedSmbFolders = viewModel::importSelectedSmbFolders,
                 onYouTubeQueryChange = viewModel::updateYouTubeQuery,
                 onSearchYouTube = { viewModel.searchYouTubePlaylists() },
                 onPlayYouTubePlaylist = { pl ->
@@ -222,6 +262,8 @@ fun SonoraAppShell(viewModel: SonoraViewModel) {
                 onCheckUpdatesForRepo = { repo -> viewModel.checkForUpdates(manual = true, repoOverride = repo) },
                 onOpenUpdateDialog = viewModel::reopenUpdateDialog,
                 showUpdateDialog = showUpdateDialog,
+                isLandscapeFullscreen = isLandscapeFullscreen,
+                onSetLandscapeFullscreen = { isLandscapeFullscreen = it },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)

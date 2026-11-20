@@ -2,10 +2,13 @@ package com.example.update
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
 import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,6 +18,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 data class ReleaseUpdateInfo(
@@ -44,7 +48,17 @@ sealed interface AppUpdateUiState {
 enum class ApkInstallResult {
     LAUNCHED_INSTALLER,
     NEEDS_PERMISSION,
+    SIGNATURE_MISMATCH,
+    VERSION_DOWNGRADE,
     ERROR
+}
+
+sealed interface ApkCompatibilityStatus {
+    data object Compatible : ApkCompatibilityStatus
+    data class PackageMismatch(val archivePackage: String, val expectedPackage: String) : ApkCompatibilityStatus
+    data class VersionDowngrade(val archiveVersionCode: Long, val installedVersionCode: Long) : ApkCompatibilityStatus
+    data object SignatureMismatch : ApkCompatibilityStatus
+    data class InvalidArchive(val reason: String) : ApkCompatibilityStatus
 }
 
 class AppUpdateManager(private val context: Context) {
@@ -93,15 +107,13 @@ class AppUpdateManager(private val context: Context) {
                             preferReleaseApk = preferReleaseApk
                         )
                         if (parsed != null) return@runCatching parsed
-                        // If /releases/latest already points to an APK-bearing release <= currentVersion,
-                        // double-check list only if it lacked an APK asset.
                         val assets = obj.optJSONArray("assets")
                         val hasApk = assets != null && (0 until assets.length()).any { idx ->
                             assets.optJSONObject(idx)?.optString("name")?.endsWith(".apk", ignoreCase = true) == true
                         }
                         if (hasApk) return@runCatching null
                     }
-                    404 -> Unit // Fall through to /releases list (handles prerelease-only repos)
+                    404 -> Unit
                     403 -> error("Límite de consultas de GitHub alcanzado (HTTP 403). Intenta en unos minutos.")
                     else -> error("Error HTTP ${resp.code} al comprobar actualizaciones")
                 }
@@ -199,8 +211,51 @@ class AppUpdateManager(private val context: Context) {
         }.getOrDefault(false)
     }
 
+    fun inspectApkCompatibility(apkFile: File): ApkCompatibilityStatus {
+        if (!isValidApkFile(apkFile)) {
+            return ApkCompatibilityStatus.InvalidArchive("El archivo descargado no es un APK válido.")
+        }
+        val pm = context.packageManager
+        val sigFlags = signingFlags()
+        val archiveInfo = runCatching {
+            @Suppress("DEPRECATION")
+            pm.getPackageArchiveInfo(apkFile.absolutePath, sigFlags)
+        }.getOrNull() ?: return ApkCompatibilityStatus.Compatible
+
+        if (archiveInfo.packageName != null && archiveInfo.packageName != context.packageName) {
+            return ApkCompatibilityStatus.PackageMismatch(archiveInfo.packageName, context.packageName)
+        }
+
+        val installedInfo = runCatching {
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(context.packageName, sigFlags)
+        }.getOrNull() ?: return ApkCompatibilityStatus.Compatible
+
+        val archiveVersionCode = PackageInfoCompat.getLongVersionCode(archiveInfo)
+        val installedVersionCode = PackageInfoCompat.getLongVersionCode(installedInfo)
+        if (archiveVersionCode > 0L && installedVersionCode > 0L && archiveVersionCode < installedVersionCode) {
+            return ApkCompatibilityStatus.VersionDowngrade(archiveVersionCode, installedVersionCode)
+        }
+
+        val archiveDigests = extractSignatureSha256Set(archiveInfo)
+        val installedDigests = extractSignatureSha256Set(installedInfo)
+        if (archiveDigests.isNotEmpty() && installedDigests.isNotEmpty() &&
+            archiveDigests.intersect(installedDigests).isEmpty()
+        ) {
+            return ApkCompatibilityStatus.SignatureMismatch
+        }
+
+        return ApkCompatibilityStatus.Compatible
+    }
+
     fun launchApkInstaller(apkFile: File): ApkInstallResult {
-        if (!isValidApkFile(apkFile)) return ApkInstallResult.ERROR
+        when (inspectApkCompatibility(apkFile)) {
+            ApkCompatibilityStatus.SignatureMismatch -> return ApkInstallResult.SIGNATURE_MISMATCH
+            is ApkCompatibilityStatus.VersionDowngrade -> return ApkInstallResult.VERSION_DOWNGRADE
+            is ApkCompatibilityStatus.PackageMismatch,
+            is ApkCompatibilityStatus.InvalidArchive -> return ApkInstallResult.ERROR
+            ApkCompatibilityStatus.Compatible -> Unit
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             !context.packageManager.canRequestPackageInstalls()
@@ -234,6 +289,29 @@ class AppUpdateManager(private val context: Context) {
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             runCatching { context.startActivity(intent) }
         }
+    }
+
+    private fun signingFlags(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+    }
+
+    private fun extractSignatureSha256Set(info: PackageInfo): Set<String> {
+        val rawBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.apkContentsSigners?.map { it.toByteArray() }
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures?.map { it.toByteArray() }
+        } ?: return emptySet()
+
+        val md = MessageDigest.getInstance("SHA-256")
+        return rawBytes.map { bytes ->
+            md.digest(bytes).joinToString(":") { b -> "%02X".format(b) }
+        }.toSet()
     }
 
     companion object {

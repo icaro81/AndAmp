@@ -452,6 +452,218 @@ class SmbRepository(
         )
     }
 
+    suspend fun importSmbFoldersRecursive(
+        server: SmbServerProfile,
+        folderEntries: List<SmbBrowserEntry>,
+        targetPlaylistId: Long? = null,
+        protocolHint: String = "",
+        maxDepth: Int = 6,
+        maxTracks: Int = 5000
+    ): Int = withContext(Dispatchers.IO) {
+        val dirs = folderEntries.filter { it.isDirectory }
+        if (dirs.isEmpty()) return@withContext 0
+
+        val cleanHost = normalizeHost(server.host)
+        val useSmb1Directly = protocolHint.contains("SMB1", ignoreCase = true) ||
+            preferredSmb1Hosts[cleanHost] == true
+
+        val collectedAudio = if (!useSmb1Directly) {
+            val smb2Collected = runCatching {
+                collectSmb2AudioRecursive(server, cleanHost, dirs, maxDepth, maxTracks)
+            }
+            if (smb2Collected.isSuccess) {
+                preferredSmb1Hosts[cleanHost] = false
+                smb2Collected.getOrThrow()
+            } else {
+                val smb1Collected = collectSmb1AudioRecursive(server, cleanHost, dirs, maxDepth, maxTracks)
+                preferredSmb1Hosts[cleanHost] = true
+                smb1Collected
+            }
+        } else {
+            val smb1Attempt = runCatching {
+                collectSmb1AudioRecursive(server, cleanHost, dirs, maxDepth, maxTracks)
+            }
+            if (smb1Attempt.isSuccess) {
+                preferredSmb1Hosts[cleanHost] = true
+                smb1Attempt.getOrThrow()
+            } else {
+                val smb2Fallback = collectSmb2AudioRecursive(server, cleanHost, dirs, maxDepth, maxTracks)
+                preferredSmb1Hosts[cleanHost] = false
+                smb2Fallback
+            }
+        }
+
+        if (collectedAudio.isEmpty()) return@withContext 0
+        val effectiveHint = if (preferredSmb1Hosts[cleanHost] == true) "SMB1/CIFS" else protocolHint
+        importSmbEntries(
+            server = server,
+            entries = collectedAudio,
+            targetPlaylistId = targetPlaylistId,
+            protocolHint = effectiveHint
+        )
+    }
+
+    private fun collectSmb2AudioRecursive(
+        server: SmbServerProfile,
+        cleanHost: String,
+        roots: List<SmbBrowserEntry>,
+        maxDepth: Int,
+        maxTracks: Int
+    ): List<SmbBrowserEntry> {
+        val results = mutableListOf<SmbBrowserEntry>()
+        val seenFiles = HashSet<String>()
+        val visitedDirs = HashSet<String>()
+        val queue = ArrayDeque<Triple<String, String, Int>>()
+
+        roots.forEach { root ->
+            val (share, rel) = splitShareAndSubpath(root.shareName, root.relativePath)
+            if (share.isNotBlank()) {
+                queue.addLast(Triple(share, rel, 0))
+            }
+        }
+
+        val client = buildClient(multiProtocolNegotiate = true)
+        client.use { smbClient ->
+            val conn = smbClient.connect(cleanHost, server.port)
+            conn.use { connection ->
+                val sess = authenticateSmb2WithFallback(connection, server)
+                sess.use { session ->
+                    val shareCache = mutableMapOf<String, DiskShare>()
+                    try {
+                        while (queue.isNotEmpty() && results.size < maxTracks) {
+                            val (shareName, relPath, depth) = queue.removeFirst()
+                            val cleanPath = relPath.replace('/', '\\').trim('\\')
+                            val dirKey = "${shareName.lowercase()}|${cleanPath.lowercase()}"
+                            if (!visitedDirs.add(dirKey)) continue
+
+                            val diskShare = runCatching {
+                                shareCache.getOrPut(shareName) {
+                                    session.connectShare(shareName) as DiskShare
+                                }
+                            }.getOrNull() ?: continue
+
+                            val rawList = runCatching { diskShare.list(cleanPath) }.getOrNull() ?: continue
+                            val sortedInfos = rawList
+                                .filter { it.fileName != null && it.fileName != "." && it.fileName != ".." }
+                                .sortedBy { it.fileName.lowercase() }
+
+                            for (info in sortedInfos) {
+                                if (results.size >= maxTracks) break
+                                val name = info.fileName ?: continue
+                                val isDir = EnumWithValue.EnumUtils.isSet(
+                                    info.fileAttributes,
+                                    FileAttributes.FILE_ATTRIBUTE_DIRECTORY
+                                )
+                                val nextRel = if (cleanPath.isEmpty()) name else "$cleanPath\\$name"
+                                if (isDir) {
+                                    if (depth < maxDepth) {
+                                        queue.addLast(Triple(shareName, nextRel, depth + 1))
+                                    }
+                                } else {
+                                    val ext = name.substringAfterLast('.', "").lowercase()
+                                    if (ext in supportedAudioExts) {
+                                        val fileKey = "${shareName.lowercase()}|${nextRel.lowercase()}"
+                                        if (seenFiles.add(fileKey)) {
+                                            results.add(
+                                                SmbBrowserEntry(
+                                                    name = name,
+                                                    relativePath = nextRel,
+                                                    shareName = shareName,
+                                                    isDirectory = false,
+                                                    sizeBytes = info.endOfFile,
+                                                    formatHint = guessFormat(ext)
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } finally {
+                        shareCache.values.forEach { runCatching { it.close() } }
+                    }
+                }
+            }
+        }
+        return results
+    }
+
+    private fun collectSmb1AudioRecursive(
+        server: SmbServerProfile,
+        cleanHost: String,
+        roots: List<SmbBrowserEntry>,
+        maxDepth: Int,
+        maxTracks: Int
+    ): List<SmbBrowserEntry> {
+        val firstShare = roots.firstOrNull { it.shareName.isNotBlank() }?.shareName ?: return emptyList()
+        val base = buildJcifsBaseContext(smb1First = true)
+        val rootPrefix = buildJcifsServerRoot(cleanHost, server.port)
+        val ctx = resolveWorkingJcifsContext(server, rootPrefix, firstShare, base)
+
+        val results = mutableListOf<SmbBrowserEntry>()
+        val seenFiles = HashSet<String>()
+        val visitedDirs = HashSet<String>()
+        val queue = ArrayDeque<Triple<String, String, Int>>()
+
+        roots.forEach { root ->
+            val (share, rel) = splitShareAndSubpath(root.shareName, root.relativePath)
+            if (share.isNotBlank()) {
+                queue.addLast(Triple(share, rel, 0))
+            }
+        }
+
+        while (queue.isNotEmpty() && results.size < maxTracks) {
+            val (shareName, relPath, depth) = queue.removeFirst()
+            val cleanShare = shareName.trim('/', '\\')
+            val cleanPathBackslash = relPath.replace('/', '\\').trim('\\')
+            val dirKey = "${cleanShare.lowercase()}|${cleanPathBackslash.lowercase()}"
+            if (!visitedDirs.add(dirKey)) continue
+
+            var dirFile = JcifsSmbFile("$rootPrefix$cleanShare/", ctx)
+            val cleanPathForward = cleanPathBackslash.replace('\\', '/')
+            if (cleanPathForward.isNotBlank()) {
+                for (seg in cleanPathForward.split('/').filter { it.isNotBlank() }) {
+                    dirFile = JcifsSmbFile(dirFile, "$seg/")
+                }
+            }
+
+            val rawFiles = runCatching { dirFile.listFiles() }.getOrNull() ?: continue
+            val sortedItems = rawFiles.sortedBy { (it.name ?: "").lowercase() }
+            for (item in sortedItems) {
+                if (results.size >= maxTracks) break
+                val rawName = item.name ?: continue
+                val name = rawName.trimEnd('/')
+                if (name.isBlank() || name == "." || name == "..") continue
+                val isDir = runCatching { item.isDirectory }.getOrDefault(rawName.endsWith("/"))
+                val nextRel = if (cleanPathBackslash.isEmpty()) name else "$cleanPathBackslash\\$name"
+                if (isDir) {
+                    if (depth < maxDepth) {
+                        queue.addLast(Triple(cleanShare, nextRel, depth + 1))
+                    }
+                } else {
+                    val ext = name.substringAfterLast('.', "").lowercase()
+                    if (ext in supportedAudioExts) {
+                        val fileKey = "${cleanShare.lowercase()}|${nextRel.lowercase()}"
+                        if (seenFiles.add(fileKey)) {
+                            val size = runCatching { item.length() }.getOrDefault(0L)
+                            results.add(
+                                SmbBrowserEntry(
+                                    name = name,
+                                    relativePath = nextRel,
+                                    shareName = cleanShare,
+                                    isDirectory = false,
+                                    sizeBytes = size,
+                                    formatHint = guessFormat(ext)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return results
+    }
+
     suspend fun importSmbEntries(
         server: SmbServerProfile,
         entries: List<SmbBrowserEntry>,

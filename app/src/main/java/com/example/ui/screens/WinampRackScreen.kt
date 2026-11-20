@@ -10,11 +10,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -120,6 +125,10 @@ fun WinampRackScreen(
     onNavigateSmbUp: () -> Unit,
     onCloseSmbBrowser: () -> Unit,
     onImportAllSmbInFolder: () -> Unit,
+    onToggleSmbFolderSelection: (SmbBrowserEntry) -> Unit = {},
+    onSelectAllSmbFolders: () -> Unit = {},
+    onClearSmbFolderSelection: () -> Unit = {},
+    onImportSelectedSmbFolders: () -> Unit = {},
     onYouTubeQueryChange: (String) -> Unit,
     onSearchYouTube: () -> Unit,
     onPlayYouTubePlaylist: (YouTubePlaylistSummary) -> Unit,
@@ -138,6 +147,8 @@ fun WinampRackScreen(
     onCheckUpdatesForRepo: ((String) -> Unit)? = null,
     onOpenUpdateDialog: () -> Unit = {},
     showUpdateDialog: Boolean = false,
+    isLandscapeFullscreen: Boolean = false,
+    onSetLandscapeFullscreen: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -170,37 +181,43 @@ fun WinampRackScreen(
         val isCompactWidth = maxWidth < 370.dp
         val isWidePortraitTablet = !isLandscape && maxWidth >= 700.dp
 
+        LaunchedEffect(isLandscape) {
+            if (!isLandscape && isLandscapeFullscreen) {
+                onSetLandscapeFullscreen(false)
+            }
+        }
+
         val availableLandscapeHeight = (maxHeight - 48.dp).coerceAtLeast(220.dp)
         val sizing = RackSizing(
             isLandscape = isLandscape,
             isCompactWidth = isCompactWidth,
             horizontalPadding = when {
-                isLandscape -> 8.dp
+                isLandscape -> if (isLandscapeFullscreen) 6.dp else 8.dp
                 maxWidth >= 700.dp -> 14.dp
                 isCompactWidth -> 4.dp
                 else -> 6.dp
             },
             spectrumHeight = when {
-                isLandscape -> (availableLandscapeHeight * 0.16f).coerceIn(32.dp, 64.dp)
+                isLandscape -> (availableLandscapeHeight * 0.22f).coerceIn(36.dp, 120.dp)
                 else -> (maxHeight * 0.052f).coerceIn(32.dp, 50.dp)
             },
             eqFaderHeight = when {
-                isLandscape -> (availableLandscapeHeight - 106.dp).coerceIn(104.dp, 260.dp)
+                isLandscape -> (availableLandscapeHeight - 106.dp).coerceIn(104.dp, 320.dp)
                 else -> (maxHeight * 0.16f).coerceIn(106.dp, 162.dp)
             },
             playlistMinHeight = (maxHeight * 0.25f).coerceIn(170.dp, 260.dp),
             playlistMaxHeight = (maxHeight * 0.34f).coerceIn(220.dp, 380.dp),
-            transportButtonHeight = if (isLandscape || maxWidth >= 700.dp) 42.dp else 38.dp,
-            footerButtonHeight = if (isLandscape || maxWidth >= 700.dp) 40.dp else 38.dp,
+            transportButtonHeight = if (isLandscape || maxWidth >= 700.dp) 44.dp else 38.dp,
+            footerButtonHeight = if (isLandscape || maxWidth >= 700.dp) 42.dp else 38.dp,
             timerFontSize = when {
-                isLandscape && maxWidth >= 820.dp -> 23.sp
+                isLandscape && maxWidth >= 820.dp -> 24.sp
                 isLandscape -> 20.sp
                 maxWidth >= 700.dp -> 24.sp
                 isCompactWidth -> 18.sp
                 else -> 21.sp
             },
             youtubePortraitMaxHeight = (maxHeight * 0.31f).coerceIn(165.dp, 320.dp),
-            youtubeLandscapeMaxHeight = (availableLandscapeHeight - 62.dp).coerceIn(135.dp, 340.dp)
+            youtubeLandscapeMaxHeight = (availableLandscapeHeight - 62.dp).coerceIn(135.dp, 460.dp)
         )
 
         val currentPosMs = if (playbackSourceMode == PlaybackSourceMode.YOUTUBE_REMOTE) {
@@ -212,7 +229,6 @@ fun WinampRackScreen(
         if (isLandscape) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = 1120.dp)
                     .fillMaxSize()
                     .padding(horizontal = sizing.horizontalPadding, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -224,6 +240,7 @@ fun WinampRackScreen(
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     tabTitles.forEachIndexed { idx, label ->
@@ -247,6 +264,30 @@ fun WinampRackScreen(
                                 color = if (selected) WinampColors.LcdGreen else WinampColors.TitleSilver
                             )
                         }
+                    }
+
+                    WinampMetallicButton(
+                        onClick = { onSetLandscapeFullscreen(!isLandscapeFullscreen) },
+                        testTag = "landscape_fullscreen_toggle",
+                        contentDesc = if (isLandscapeFullscreen) {
+                            "Salir de pantalla completa"
+                        } else {
+                            "Pantalla completa horizontal"
+                        },
+                        showLed = true,
+                        ledActive = isLandscapeFullscreen,
+                        minHeight = 36.dp
+                    ) {
+                        Icon(
+                            imageVector = if (isLandscapeFullscreen) {
+                                Icons.Filled.FullscreenExit
+                            } else {
+                                Icons.Filled.Fullscreen
+                            },
+                            contentDescription = null,
+                            tint = if (isLandscapeFullscreen) WinampColors.LcdGreen else WinampColors.EqGoldBright,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
 
@@ -517,6 +558,10 @@ fun WinampRackScreen(
             onNavigateSmbUp = onNavigateSmbUp,
             onCloseSmbBrowser = onCloseSmbBrowser,
             onImportAllSmbInFolder = onImportAllSmbInFolder,
+            onToggleSmbFolderSelection = onToggleSmbFolderSelection,
+            onSelectAllSmbFolders = onSelectAllSmbFolders,
+            onClearSmbFolderSelection = onClearSmbFolderSelection,
+            onImportSelectedSmbFolders = onImportSelectedSmbFolders,
             onYouTubeQueryChange = onYouTubeQueryChange,
             onSearchYouTube = onSearchYouTube,
             onPlayYouTubePlaylist = { pl ->

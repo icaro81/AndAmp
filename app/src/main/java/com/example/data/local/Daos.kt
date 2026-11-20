@@ -12,6 +12,12 @@ interface TrackDao {
     @Query("SELECT * FROM tracks ORDER BY isReferenceTrack ASC, addedAt DESC")
     fun observeAllTracks(): Flow<List<TrackEntity>>
 
+    @Query("SELECT * FROM tracks ORDER BY isReferenceTrack ASC, addedAt DESC")
+    suspend fun getAllTracksOnce(): List<TrackEntity>
+
+    @Query("SELECT * FROM tracks WHERE id = :trackId LIMIT 1")
+    suspend fun getTrackById(trackId: Long): TrackEntity?
+
     @Query("SELECT COUNT(*) FROM tracks")
     suspend fun getTrackCount(): Int
 
@@ -56,6 +62,16 @@ interface PlaylistDao {
         """
     )
     fun observeTracksForPlaylist(playlistId: Long): Flow<List<TrackEntity>>
+
+    @Query(
+        """
+        SELECT t.* FROM tracks t
+        INNER JOIN playlist_track_cross_ref ref ON t.id = ref.trackId
+        WHERE ref.playlistId = :playlistId
+        ORDER BY ref.position ASC
+        """
+    )
+    suspend fun getTracksForPlaylistOnce(playlistId: Long): List<TrackEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylist(playlist: PlaylistEntity): Long

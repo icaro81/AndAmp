@@ -86,6 +86,7 @@ import com.example.ui.theme.WinampColors
 import com.example.ui.viewmodel.LanScanUiState
 import com.example.ui.viewmodel.SmbBrowserUiState
 import com.example.ui.viewmodel.YouTubeSearchUiState
+import com.example.ui.viewmodel.browserKey
 
 private enum class AddSourceTab(val label: String) {
     LOCAL("MÓVIL"),
@@ -117,6 +118,10 @@ fun AddSourceSheet(
     onNavigateSmbUp: () -> Unit,
     onCloseSmbBrowser: () -> Unit,
     onImportAllSmbInFolder: () -> Unit,
+    onToggleSmbFolderSelection: (SmbBrowserEntry) -> Unit = {},
+    onSelectAllSmbFolders: () -> Unit = {},
+    onClearSmbFolderSelection: () -> Unit = {},
+    onImportSelectedSmbFolders: () -> Unit = {},
     onYouTubeQueryChange: (String) -> Unit,
     onSearchYouTube: () -> Unit,
     onPlayYouTubePlaylist: (YouTubePlaylistSummary) -> Unit,
@@ -194,6 +199,10 @@ fun AddSourceSheet(
                     onNavigateUp = onNavigateSmbUp,
                     onCloseBrowser = onCloseSmbBrowser,
                     onImportAllInFolder = onImportAllSmbInFolder,
+                    onToggleFolderSelection = onToggleSmbFolderSelection,
+                    onSelectAllFolders = onSelectAllSmbFolders,
+                    onClearFolderSelection = onClearSmbFolderSelection,
+                    onImportSelectedFolders = onImportSelectedSmbFolders,
                     onPlayStarted = onDismiss
                 )
 
@@ -349,6 +358,10 @@ private fun SambaNasTabContent(
     onNavigateUp: () -> Unit,
     onCloseBrowser: () -> Unit,
     onImportAllInFolder: () -> Unit,
+    onToggleFolderSelection: (SmbBrowserEntry) -> Unit = {},
+    onSelectAllFolders: () -> Unit = {},
+    onClearFolderSelection: () -> Unit = {},
+    onImportSelectedFolders: () -> Unit = {},
     onPlayStarted: () -> Unit
 ) {
     var showInlineForm by remember { mutableStateOf(false) }
@@ -765,6 +778,120 @@ private fun SambaNasTabContent(
                 }
             }
 
+            val dirCount = remember(browserState.entries) {
+                browserState.entries.count { it.isDirectory }
+            }
+            if (browserState.selectedFolderKeys.isNotEmpty()) {
+                Surface(
+                    color = WinampColors.ChassisSurfaceBottom,
+                    border = BorderStroke(1.dp, WinampColors.LcdGreen.copy(alpha = 0.7f)),
+                    shape = RoundedCornerShape(3.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("smb_multi_select_bar")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "${browserState.selectedFolderKeys.size} carpeta(s) seleccionada(s)",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.5.sp,
+                                color = WinampColors.LcdGreen
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(
+                                    onClick = onSelectAllFolders,
+                                    modifier = Modifier.testTag("smb_select_all_folders")
+                                ) {
+                                    Text(
+                                        text = "Todas",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontSize = 10.sp,
+                                        color = WinampColors.TitleGold
+                                    )
+                                }
+                                TextButton(
+                                    onClick = onClearFolderSelection,
+                                    modifier = Modifier.testTag("smb_clear_selected_folders")
+                                ) {
+                                    Text(
+                                        text = "Limpiar",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontSize = 10.sp,
+                                        color = WinampColors.TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                        WinampMetallicButton(
+                            onClick = {
+                                if (!browserState.isBatchImporting && !browserState.isLoading) {
+                                    onImportSelectedFolders()
+                                }
+                            },
+                            testTag = "smb_import_selected_folders",
+                            contentDesc = "Guardar música de las carpetas seleccionadas",
+                            showLed = true,
+                            ledActive = true,
+                            minHeight = 48.dp,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Download,
+                                contentDescription = null,
+                                tint = WinampColors.LcdGreen,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = if (browserState.isBatchImporting) {
+                                    "IMPORTANDO CARPETAS..."
+                                } else {
+                                    "GUARDAR SELECCIONADAS"
+                                },
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.5.sp,
+                                color = WinampColors.LcdGreen
+                            )
+                        }
+                    }
+                }
+            } else if (dirCount > 0 && !browserState.isLoading) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Marca varias carpetas para guardarlas juntas",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontSize = 9.5.sp,
+                        color = WinampColors.TextSecondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = onSelectAllFolders,
+                        modifier = Modifier.testTag("smb_select_all_folders")
+                    ) {
+                        Text(
+                            text = "Marcar todas",
+                            fontFamily = JetBrainsMonoFamily,
+                            fontSize = 9.5.sp,
+                            color = WinampColors.EqGoldBright
+                        )
+                    }
+                }
+            }
+
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -785,39 +912,70 @@ private fun SambaNasTabContent(
                     }
                 }
                 items(browserState.entries, key = { "${it.shareName}/${it.relativePath}" }) { entry ->
+                    val isChecked = entry.isDirectory && entry.browserKey() in browserState.selectedFolderKeys
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                onNavigateEntry(entry)
-                                if (!entry.isDirectory) onPlayStarted()
-                            }
-                            .padding(horizontal = 8.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.AudioFile,
-                            contentDescription = null,
-                            tint = if (entry.isDirectory) WinampColors.EqGoldBright else WinampColors.LcdGreen,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = entry.name,
-                            fontFamily = JetBrainsMonoFamily,
-                            fontSize = 12.sp,
-                            color = if (entry.isDirectory) WinampColors.TitleGold else WinampColors.LcdGreen,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        entry.formatHint?.let { fmt ->
-                            Text(
-                                text = fmt.label,
-                                fontFamily = JetBrainsMonoFamily,
-                                fontSize = 9.5.sp,
-                                color = WinampColors.EqGoldBright
+                            .background(
+                                color = if (isChecked) {
+                                    WinampColors.PlaylistSelectBg.copy(alpha = 0.45f)
+                                } else {
+                                    androidx.compose.ui.graphics.Color.Transparent
+                                },
+                                shape = RoundedCornerShape(2.dp)
                             )
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (entry.isDirectory) {
+                            Checkbox(
+                                checked = isChecked,
+                                onCheckedChange = { onToggleFolderSelection(entry) },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = WinampColors.LcdGreen,
+                                    uncheckedColor = WinampColors.TitleSilver,
+                                    checkmarkColor = WinampColors.LcdBlack
+                                ),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("smb_folder_checkbox_${entry.name}")
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    onNavigateEntry(entry)
+                                    if (!entry.isDirectory) onPlayStarted()
+                                }
+                                .padding(horizontal = 6.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.AudioFile,
+                                contentDescription = null,
+                                tint = if (entry.isDirectory) WinampColors.EqGoldBright else WinampColors.LcdGreen,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = entry.name,
+                                fontFamily = JetBrainsMonoFamily,
+                                fontSize = 12.sp,
+                                color = if (entry.isDirectory) WinampColors.TitleGold else WinampColors.LcdGreen,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            entry.formatHint?.let { fmt ->
+                                Text(
+                                    text = fmt.label,
+                                    fontFamily = JetBrainsMonoFamily,
+                                    fontSize = 9.5.sp,
+                                    color = WinampColors.EqGoldBright
+                                )
+                            }
                         }
                     }
                 }
